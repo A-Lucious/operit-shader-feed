@@ -28,7 +28,11 @@ export interface StoreEntry {
 
 /** 真实实现要包住 Tools.Files + environment 选择。 */
 export interface StoreFs {
-  /** 读文本；文件不存在返回 null（不要把「不存在」当异常，因为首次运行就是这样）。 */
+  /**
+   * 读文本。文件**不存在**返回 null（首次运行就是这样，不是异常）。
+   * 其它失败（权限等）**必须抛出** —— 不可读与不存在必须能区分，
+   * 否则 store 会把「不可读」当成「首次运行」，随后覆盖掉用户原有缓存。
+   */
   readText(path: string): Promise<string | null>;
   writeText(path: string, text: string): Promise<void>;
   writeBinary(path: string, base64: string): Promise<void>;
@@ -202,19 +206,29 @@ export function createStore(fs: StoreFs, options: StoreOptions) {
    * 读 JSON。**任何解析失败都退化成空状态，绝不抛出** ——
    * 索引文件损坏不该让整个插件变成打不开的黑屏。
    */
+  /**
+   * 读 JSON。**任何解析失败都退化成空状态，绝不抛出** ——
+   * 索引文件损坏不该让整个插件变成打不开的黑屏。
+   *
+   * 但**必须上报**：静默退化成空的话，用户看到的是「我的缓存没了」而没有任何解释。
+   * 走 onWarn，缓存面板会把警告显示出来。
+   */
   async function readJson<T>(path: string, fallback: T): Promise<T> {
     let raw: string | null = null;
     try {
       raw = await fs.readText(path);
-    } catch {
+    } catch (err) {
+      warn("读取 " + path + " 失败，按空状态继续: " + errText(err));
       return fallback;
     }
     if (raw === null || raw.trim() === "") {
+      // 不存在是正常的首次运行，不报警。
       return fallback;
     }
     try {
       return JSON.parse(raw) as T;
-    } catch {
+    } catch (err) {
+      warn(path + " 内容损坏，按空状态继续: " + errText(err));
       return fallback;
     }
   }

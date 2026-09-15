@@ -424,6 +424,65 @@ async function main() {
     );
   }
 
+  console.log("── 索引不可读 / 损坏时必须上报，不能静默当成首次运行 ──");
+  {
+    // 不可读（权限等）：必须能区分于「不存在」，否则缓存会被当成首次运行而被覆盖
+    const mem = makeMemFs();
+    const warnings = [];
+    const brokenFs = {
+      ...mem.fs,
+      readText: async () => {
+        throw new Error("EACCES: permission denied");
+      },
+    };
+    const store = createStore(brokenFs, {
+      root: ROOT_DIR,
+      hash: deterministicHash,
+      onWarn: (m) => warnings.push(m),
+    });
+    eq("不可读时退化成空（不抛）", (await store.listShaders()).length, 0);
+    ok("但必须上报到 onWarn", warnings.length > 0, JSON.stringify(warnings));
+    ok(
+      "警告里带路径与原因",
+      warnings[0].includes("index.json") && warnings[0].includes("EACCES"),
+      warnings[0],
+    );
+  }
+  {
+    // 损坏的 JSON 也要上报，而不只是默默清空
+    const mem = makeMemFs();
+    const warnings = [];
+    const seed = createStore(mem.fs, { root: ROOT_DIR, hash: deterministicHash });
+    await seed.saveShader(makeRecord("corrupt1"), true);
+    mem.files.set(ROOT_DIR + "/index.json", { text: "{ 这不是合法 JSON" });
+
+    const fresh = createStore(mem.fs, {
+      root: ROOT_DIR,
+      hash: deterministicHash,
+      onWarn: (m) => warnings.push(m),
+    });
+    eq("损坏索引退化成空", (await fresh.listShaders()).length, 0);
+    ok(
+      "损坏也上报（用户要知道缓存为什么没了）",
+      warnings.some((w) => w.includes("损坏")),
+      JSON.stringify(warnings),
+    );
+  }
+  {
+    // 首次运行（文件根本不存在）不该产生噪音警告，否则警告会被用户忽略
+    const mem = makeMemFs();
+    const warnings = [];
+    const store = createStore(mem.fs, {
+      root: ROOT_DIR,
+      hash: deterministicHash,
+      onWarn: (m) => warnings.push(m),
+    });
+    await store.listShaders();
+    await store.usage();
+    await store.loadShader("nope");
+    eq("首次运行不报警告", warnings.length, 0, JSON.stringify(warnings));
+  }
+
   console.log(`\n${pass}/${pass + failures.length} 通过`);
   if (failures.length) {
     console.error(`✗ ${failures.length} 项失败`);

@@ -112,21 +112,31 @@ function createStore(fs, options) {
      * 读 JSON。**任何解析失败都退化成空状态，绝不抛出** ——
      * 索引文件损坏不该让整个插件变成打不开的黑屏。
      */
+    /**
+     * 读 JSON。**任何解析失败都退化成空状态，绝不抛出** ——
+     * 索引文件损坏不该让整个插件变成打不开的黑屏。
+     *
+     * 但**必须上报**：静默退化成空的话，用户看到的是「我的缓存没了」而没有任何解释。
+     * 走 onWarn，缓存面板会把警告显示出来。
+     */
     async function readJson(path, fallback) {
         let raw = null;
         try {
             raw = await fs.readText(path);
         }
-        catch {
+        catch (err) {
+            warn("读取 " + path + " 失败，按空状态继续: " + errText(err));
             return fallback;
         }
         if (raw === null || raw.trim() === "") {
+            // 不存在是正常的首次运行，不报警。
             return fallback;
         }
         try {
             return JSON.parse(raw);
         }
-        catch {
+        catch (err) {
+            warn(path + " 内容损坏，按空状态继续: " + errText(err));
             return fallback;
         }
     }

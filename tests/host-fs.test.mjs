@@ -171,8 +171,20 @@ async function main() {
     readImpl = async () => {
       throw new Error("EACCES: permission denied");
     };
-    const perm = await fs.readText("/r/index.json");
-    eq("权限错误也退化成 null（不把插件炸掉）", perm, null);
+    // 契约：只有「不存在」返回 null，其它失败必须抛出。
+    // 返回 null 会让 store 把「不可读」当成「首次运行」，随后覆盖用户原有缓存。
+    let permErr = null;
+    try {
+      await fs.readText("/r/index.json");
+    } catch (err) {
+      permErr = err;
+    }
+    ok("权限错误必须抛出（不能伪装成「不存在」）", permErr !== null, String(permErr && permErr.message));
+
+    readImpl = async () => {
+      throw new Error("文件不存在");
+    };
+    eq("中文「不存在」依然识别为不存在 → null", await fs.readText("/r/index.json"), null);
 
     readImpl = async (p) => ({ path: p, content: '{"shaders":{}}', size: 15 });
     calls.length = 0;

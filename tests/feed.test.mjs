@@ -345,40 +345,48 @@ async function main() {
   console.log("── start 必须幂等：重复 start 不该静默吃掉一条 ──");
   {
     let t = 0;
-    const fake = makeFakeCrawler([rec('s1'), rec('s2'), rec('s3')]);
+    const fake = makeFakeCrawler([rec("s1"), rec("s2"), rec("s3")]);
     const feed = createFeed(fake.crawler, { dwellMs: DWELL, now: () => t });
 
     const first = feed.start();
-    eq('首次 start 拿到第一条', first.current && first.current.id, 's1');
+    eq("首次 start 拿到第一条", first.current && first.current.id, "s1");
     t += 1000;
     feed.tick();
 
     const again = feed.start();
-    eq('重复 start 不报 advanced', again.advanced, false);
-    eq('当前条目没被换掉', feed.current().id, 's1');
-    ok('已播时长没被重置', feed.snapshot().playedMs >= 1000, String(feed.snapshot().playedMs));
-    eq('index 没被推进', feed.snapshot().index, 0);
+    eq("重复 start 不报 advanced", again.advanced, false);
+    eq("当前条目没被换掉", feed.current().id, "s1");
+    ok(
+      "已播时长没被重置",
+      feed.snapshot().playedMs >= 1000,
+      String(feed.snapshot().playedMs),
+    );
+    eq("index 没被推进", feed.snapshot().index, 0);
   }
 
   console.log("── 未 start 就 advance：应当开始播放而不是丢一条 ──");
   {
-    let t = 0;
-    const fake = makeFakeCrawler([rec('a1'), rec('a2')]);
+    const t = 0;
+    const fake = makeFakeCrawler([rec("a1"), rec("a2")]);
     const feed = createFeed(fake.crawler, { dwellMs: DWELL, now: () => t });
     const startedTick = feed.advance();
-    eq('advance 在未开始时充当 start', startedTick.current && startedTick.current.id, 'a1');
-    eq('index 为 0（没有跳过第一条）', feed.snapshot().index, 0);
+    eq(
+      "advance 在未开始时充当 start",
+      startedTick.current && startedTick.current.id,
+      "a1",
+    );
+    eq("index 为 0（没有跳过第一条）", feed.snapshot().index, 0);
   }
 
   console.log("── 时序边界：dwell 到点与用户上滑同时发生 ──");
   {
     let t = 0;
-    const fake = makeFakeCrawler([rec('b1'), rec('b2'), rec('b3'), rec('b4')]);
+    const fake = makeFakeCrawler([rec("b1"), rec("b2"), rec("b3"), rec("b4")]);
     const feed = createFeed(fake.crawler, { dwellMs: DWELL, now: () => t });
     feed.start();
     t += DWELL;
     const auto = feed.tick();
-    eq('自动上滑到 b2', auto.current && auto.current.id, 'b2');
+    eq("自动上滑到 b2", auto.current && auto.current.id, "b2");
 
     // 同一时刻用户也上滑：会再换一条。这是可接受的（用户本来就是想滑走），
     // 关键是不能抛错、不能回退、不能出现 current 为 null 的 advanced。
@@ -389,11 +397,18 @@ async function main() {
     } catch (err) {
       threwOut = err;
     }
-    ok('紧接的 advance 不抛异常', threwOut === null, threwOut && String(threwOut.message));
-    eq('再换到 b3', manual && manual.current && manual.current.id, 'b3');
-    eq('index 单调递增到 2', feed.snapshot().index, 2);
-    ok('报 advanced 时 current 一定非空', !(manual.advanced && manual.current === null));
-    eq('已播时长归零', feed.snapshot().playedMs, 0);
+    ok(
+      "紧接的 advance 不抛异常",
+      threwOut === null,
+      threwOut && String(threwOut.message),
+    );
+    eq("再换到 b3", manual && manual.current && manual.current.id, "b3");
+    eq("index 单调递增到 2", feed.snapshot().index, 2);
+    ok(
+      "报 advanced 时 current 一定非空",
+      !(manual.advanced && manual.current === null),
+    );
+    eq("已播时长归零", feed.snapshot().playedMs, 0);
   }
 
   console.log("── 空数据源下的边界调用都不能崩 ──");
@@ -421,10 +436,18 @@ async function main() {
     } catch (err) {
       threwErr = err;
     }
-    ok('空数据源下连续调用不抛异常', threwErr === null, threwErr && String(threwErr.message));
-    eq('current 仍为 null', feed.current(), null);
-    eq('timeOffsetSeconds 兜底为 0（不去对 null 取 id）', feed.timeOffsetSeconds(), 0);
-    ok('snapshot 仍可用', typeof feed.snapshot().index === 'number');
+    ok(
+      "空数据源下连续调用不抛异常",
+      threwErr === null,
+      threwErr && String(threwErr.message),
+    );
+    eq("current 仍为 null", feed.current(), null);
+    eq(
+      "timeOffsetSeconds 兜底为 0（不去对 null 取 id）",
+      feed.timeOffsetSeconds(),
+      0,
+    );
+    ok("snapshot 仍可用", typeof feed.snapshot().index === "number");
   }
 
   console.log(`\n${pass}/${pass + failures.length} 通过`);

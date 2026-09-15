@@ -31,7 +31,8 @@ function isMissingError(err) {
         text.includes("not exist") ||
         text.includes("does not exist") ||
         text.includes("enoent") ||
-        text.includes("找不到"));
+        text.includes("找不到") ||
+        text.includes("不存在"));
 }
 function createHostFs() {
     return {
@@ -41,13 +42,16 @@ function createHostFs() {
                 return file ? file.content : null;
             }
             catch (err) {
-                // 「不存在」是首次运行的正常状态，不是错误。
+                // 「不存在」是首次运行的正常状态，返回 null。
                 if (isMissingError(err)) {
                     return null;
                 }
-                // 其他错误（权限等）也退化成 null，但不能假装没发生：
-                // 交给调用方的 onWarn 去汇总。
-                return null;
+                // 其它错误（权限等）**必须抛出去**。
+                // 返回 null 会让「不可读」与「不存在」变得无法区分，而 store 会把
+                // 「不可读」当成「首次运行」，随后**覆盖**掉用户原有缓存 ——
+                // 几十条缓存就这样无声消失。抛出去后 store 能上报（走 onWarn），
+                // 用户至少知道缓存为什么没了。
+                throw err;
             }
         },
         async writeText(path, text) {
