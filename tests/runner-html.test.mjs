@@ -120,8 +120,16 @@ function main() {
     );
     ok(
       "deck 会调 ready()（不调的话界面一直停在「等待页面握手」）",
-      html.includes(`window.${HOST_INTERFACE_NAME}.ready`),
-      "",
+      /\.ready\s*\(/.test(html),
+      "deck 里找不到 .ready( 调用",
+    );
+    // 真机失败的根因就在这里：宿主是在页面加载**之后**（onPageStarted/onPageFinished）
+    // 才安装 JS 接口的，而 deck 脚本在解析阶段就跑完了 —— 末尾只查一次必然扑空，
+    // 表现是「框里只有一句『没有收到宿主握手』」。所以必须断言它在轮询。
+    ok(
+      "deck 会轮询等待宿主（不是末尾只查一次）",
+      /setInterval/.test(html) && /tryHostHandshake/.test(html),
+      "deck 里找不到轮询逻辑",
     );
 
     // 界面侧：必须真的把 ShaderHost 注册进 bridge，且用的是同一个常量

@@ -538,6 +538,60 @@ function buildSoakPage() {
 </body></html>`;
 }
 
+/**
+ * 页面 D：宿主**晚到** —— 真机失败的原样复现。
+ *
+ * 宿主是在 onPageStarted / onPageFinished 里才安装 JS 接口的
+ * （见 Operit 的 ToolPkgComposeDslWebView.kt），而页面脚本在解析阶段就跑完了。
+ * 旧版 deck 只在脚本末尾查一次 window.ShaderHost，必然扑空 —— 真机上就表现成
+ * 「框里只有一句『没有收到宿主握手』」。
+ *
+ * 这一页把 ShaderHost 推迟 300ms 才注入，断言：① 轮询能完成握手；
+ * ② 握手后能真的收到 shader（而不是只握了个手）。
+ */
+function buildLateHostPage() {
+  const real = SELF_CONTAINED_HTML;
+  const fixture = JSON.stringify(FIXTURES[0].json);
+  const hostStub = `<script>
+  window.__host = { ready: 0, reports: [], loadOk: null };
+  // 300ms 后才出现 —— 模拟宿主在页面加载完成后才安装 bridge。
+  window.setTimeout(function () {
+    window.ShaderHost = {
+      ready: function () {
+        window.__host.ready++;
+        window.__runnerLoad(${fixture}, { timeOffset: 0 }).then(function (res) {
+          window.__host.loadOk = !!(res && res.ok);
+        });
+      },
+      report: function (json) { window.__host.reports.push(json); },
+      swipe: function () { return true; }
+    };
+  }, 300);
+</script>
+`;
+  const driver = `<pre id="out">pending</pre>
+<script>
+(function () {
+  var results = [];
+  function rec(n, ok, d) { results.push({ name: n, ok: !!ok, detail: d || '' }); }
+  window.setTimeout(function () {
+    rec('晚到的 ShaderHost 仍被握手（旧版在这里必然扑空）', window.__host.ready >= 1, 'ready=' + window.__host.ready);
+    rec('握手后真的收到了 shader（不是只握了个手）', window.__host.loadOk === true, String(window.__host.loadOk));
+    var failed = 0;
+    for (var i = 0; i < results.length; i++) { if (!results[i].ok) failed++; }
+    document.getElementById('out').textContent = encodeURIComponent(JSON.stringify({ total: results.length, failed: failed, results: results }));
+    document.title = failed ? 'FAIL' : 'PASS';
+  }, 2500);
+})();
+</script>`;
+  const headEnd = real.indexOf('</head>');
+  const bodyEnd = real.lastIndexOf('</body>');
+  if (headEnd < 0 || bodyEnd < 0) {
+    throw new Error('自包含 HTML 结构不符预期：找不到 head 或 body 的结束位置');
+  }
+  return real.slice(0, headEnd) + hostStub + real.slice(headEnd, bodyEnd) + driver + real.slice(bodyEnd);
+}
+
 function main() {
   mkdirSync(TMP, { recursive: true });
   copyFileSync(DECK_SRC, join(TMP, "runner.js"));
@@ -557,6 +611,12 @@ function main() {
       12000,
     ],
     ["页面 C · 播放回路 soak", "harness-soak.html", buildSoakPage(), 20000],
+    [
+      "页面 D · 宿主晚到（真机失败复现）",
+      "runner-pageD.html",
+      buildLateHostPage(),
+      6000,
+    ],
   ];
 
   const all = [];

@@ -46,19 +46,27 @@ export async function readCompileResultText(
     if (text !== null) {
       return text;
     }
-    failures.push("默认目标：通道回了非文本内容（" + describeUnexpected(value) + "）");
+    failures.push(
+      "默认目标：通道回了非文本内容（" + describeUnexpected(value) + "）",
+    );
   } catch (err) {
     failures.push("默认目标：" + errText(err));
   }
 
   // 第二次：显式指定 main。走的是宿主里**另一条**校验分支，所以值得再试一次。
   try {
-    const value = await callIpc(IPC_COMPILE_READ, {}, { targetRuntime: "main" });
+    const value = await callIpc(
+      IPC_COMPILE_READ,
+      {},
+      { targetRuntime: "main" },
+    );
     const text = asUsableText(value);
     if (text !== null) {
       return text;
     }
-    failures.push("显式 main：通道回了非文本内容（" + describeUnexpected(value) + "）");
+    failures.push(
+      "显式 main：通道回了非文本内容（" + describeUnexpected(value) + "）",
+    );
   } catch (err) {
     failures.push("显式 main：" + errText(err));
   }

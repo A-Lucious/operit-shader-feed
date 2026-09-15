@@ -88,7 +88,11 @@ async function main() {
       thrown.indexOf("no handler") < 120,
       thrown.slice(0, 160),
     );
-    ok("两次尝试都报告了（默认 + 显式 main）", thrown.includes("默认目标") && thrown.includes("显式 main"), thrown);
+    ok(
+      "两次尝试都报告了（默认 + 显式 main）",
+      thrown.includes("默认目标") && thrown.includes("显式 main"),
+      thrown,
+    );
 
     // 非 Error 抛出（宿主可能直接 throw 字符串）
     const thrownStr = await readCompileResultText(async () => {
@@ -122,13 +126,15 @@ async function main() {
   console.log("── 两次尝试：默认目标失败就显式指定 main 再试一次 ──");
   {
     const seen = [];
-    const text = await readCompileResultText(async (channel, payload, options) => {
-      seen.push(options === undefined ? "默认" : JSON.stringify(options));
-      if (seen.length === 1) {
-        throw new Error("target runtime is not active");
-      }
-      return "编译失败：\n" + ERR;
-    });
+    const text = await readCompileResultText(
+      async (channel, payload, options) => {
+        seen.push(options === undefined ? "默认" : JSON.stringify(options));
+        if (seen.length === 1) {
+          throw new Error("target runtime is not active");
+        }
+        return "编译失败：\n" + ERR;
+      },
+    );
     eq("第一次用默认目标", seen[0], "默认");
     eq("第二次显式 main", seen[1], '{"targetRuntime":"main"}');
     ok("第二次拿到结果就返回它", text.includes(ERR), text);

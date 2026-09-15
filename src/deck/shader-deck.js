@@ -1124,23 +1124,49 @@
   };
   window.__runnerReady = true;
 
-  if (
-    typeof window.ShaderHost !== "undefined" &&
-    window.ShaderHost &&
-    typeof window.ShaderHost.ready === "function"
-  ) {
-    try {
-      window.ShaderHost.ready();
-    } catch {
-      /* 忽略 */
+  // ⚠️ 宿主注入 bridge 是**页面加载之后**才发生的：宿主在 onPageStarted / onPageFinished
+  // 里才去安装 JS 接口（见 ToolPkgComposeDslWebView.kt），而本脚本在解析阶段就跑完了。
+  // 所以「末尾只查一次」必然扑空 —— 真机实测正是如此：页面跑起来了、deck 也执行了，
+  // 但那一刻 window.ShaderHost 还不存在，deck 一声不吭地放弃，框里一直空着。
+  // 改成轮询：接口一出现就握手。
+  var HOST_POLL_MS = 200;
+  var HOST_WAIT_MS = 10000;
+  var hostWaited = 0;
+  var hostDone = false;
+
+  function tryHostHandshake() {
+    if (hostDone) {
+      return true;
     }
-  } else {
-    // 宿主 bridge 没挂上。这一行是真机排障的**分界线**：
-    //   看得到这句话 = 页面与脚本都跑起来了，问题在 bridge（名字/注册时机）；
-    //   看不到这句话（黑屏且无字）= 页面根本没加载，或脚本没被执行。
-    // 之前这两个分支在屏幕上长得一模一样（都是黑框），只能靠猜。
-    setStatus(
-      "没有收到宿主握手：ShaderHost 未注入（bridge 名字不一致或注册失败）",
-    );
+    var host = window.ShaderHost;
+    if (host && typeof host.ready === "function") {
+      hostDone = true;
+      try {
+        host.ready();
+      } catch {
+        /* 忽略：握手本身出错时，宿主侧的错误上报会把原因带到界面 */
+      }
+      return true;
+    }
+    return false;
+  }
+
+  if (!tryHostHandshake()) {
+    setStatus("等待宿主握手…");
+    var hostTimer = setInterval(function () {
+      hostWaited += HOST_POLL_MS;
+      if (tryHostHandshake()) {
+        clearInterval(hostTimer);
+        return;
+      }
+      if (hostWaited >= HOST_WAIT_MS) {
+        clearInterval(hostTimer);
+        setStatus(
+          "没有收到宿主握手：ShaderHost 未注入（等了 " +
+            Math.round(HOST_WAIT_MS / 1000) +
+            " 秒仍未出现 —— bridge 名字不一致，或宿主没安装 JS 接口）",
+        );
+      }
+    }, HOST_POLL_MS);
   }
 })();
