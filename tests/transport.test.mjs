@@ -38,8 +38,21 @@ function ok(name, condition, detail) {
     console.log(`  ✗ ${name}${detail ? "  → " + detail : ""}`);
   }
 }
-const eq = (name, a, b) =>
+/**
+ * 值相等断言。**收到布尔值就直接报错** —— 谓词要用 ok()。
+ * 这个守卫来自真实教训：把 `x >= 1000` 这类谓词传给 eq() 已经犯过四次，
+ * 每次都表现为「期望 "1000"，实际 true」这种要读两遍才明白的消息。
+ * 注意只在期望值不是布尔时拦：布尔对布尔是合法比较，不是这个错误。
+ */
+const eq = (name, a, b) => {
+  // 只有「期望值不是布尔」时才拦：布尔对布尔（eq("x", flag, false)）是合法比较。
+  if (typeof a === "boolean" && typeof b !== "boolean") {
+    throw new Error(
+      `eq() 收到了布尔断言：「${name}」—— 谓词请改用 ok(name, 条件, 详情)`,
+    );
+  }
   ok(name, a === b, `期望 ${JSON.stringify(b)}，实际 ${JSON.stringify(a)}`);
+};
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -329,16 +342,22 @@ async function main() {
   {
     const fake = makeFakeBridge();
     // 超时故意设得很长（60 秒）：若不就地失败，这条测试会挂在这里而不是通过
-    const transport = createSessionTransport(fake.bridge, defaultRecipe(), { timeoutMs: 60000 });
+    const transport = createSessionTransport(fake.bridge, defaultRecipe(), {
+      timeoutMs: 60000,
+    });
 
-    const p1 = transport.fetchShader('a');
-    const p2 = transport.fetchShader('b');
+    const p1 = transport.fetchShader("a");
+    const p2 = transport.fetchShader("b");
     await wait(0);
-    eq('两个请求都注入了', fake.injected.length, 2);
-    eq('dispose 之前 bridge 是接着的', fake.deliver(fake.requestIds()[0], true, 'x'), true);
+    eq("两个请求都注入了", fake.injected.length, 2);
+    eq(
+      "dispose 之前 bridge 是接着的",
+      fake.deliver(fake.requestIds()[0], true, "x"),
+      true,
+    );
 
     // p1 已被上面的投递落地；再造一个未决的来验证取消
-    const p3 = transport.fetchShader('c');
+    const p3 = transport.fetchShader("c");
     await wait(0);
 
     transport.dispose();
@@ -346,20 +365,35 @@ async function main() {
     const r1 = await p1;
     const r2 = await p2;
     const r3 = await p3;
-    ok('未决请求立刻失败，而不是等 60 秒超时', r2.ok === false && r3.ok === false,
-      JSON.stringify([r1.ok, r2.ok, r3.ok]));
-    ok('错误信息说明是被关闭/取消的', String(r3.error).includes('已关闭'), String(r3.error));
-    eq('dispose 之后 bridge 确实解绑了', fake.deliver(fake.requestIds()[0], true, 'late'), false);
+    ok(
+      "未决请求立刻失败，而不是等 60 秒超时",
+      r2.ok === false && r3.ok === false,
+      JSON.stringify([r1.ok, r2.ok, r3.ok]),
+    );
+    ok(
+      "错误信息说明是被关闭/取消的",
+      String(r3.error).includes("已关闭"),
+      String(r3.error),
+    );
+    eq(
+      "dispose 之后 bridge 确实解绑了",
+      fake.deliver(fake.requestIds()[0], true, "late"),
+      false,
+    );
     // 不要写成 `r1.ok === true || r1.ok === false` —— 那是恒真的同义反复，
     // 比没有断言更糟（它把“没验证”伪装成“验证通过”）。
-    eq('dispose 之前已落地的结果保持 ok:true', r1.ok, true);
+    eq("dispose 之前已落地的结果保持 ok:true", r1.ok, true);
 
     // dispose 之后的新请求要立刻失败，而不是挂在那儿等超时
     const started = Date.now();
-    const after = await transport.fetchShader('d');
-    eq('dispose 后新请求立刻失败', after.ok, false);
-    ok('没有白等超时', Date.now() - started < 500, Date.now() - started + 'ms');
-    ok('新请求的失败原因可读', String(after.error).includes('已关闭'), String(after.error));
+    const after = await transport.fetchShader("d");
+    eq("dispose 后新请求立刻失败", after.ok, false);
+    ok("没有白等超时", Date.now() - started < 500, Date.now() - started + "ms");
+    ok(
+      "新请求的失败原因可读",
+      String(after.error).includes("已关闭"),
+      String(after.error),
+    );
   }
 
   console.log(`\n${pass}/${pass + failures.length} 通过`);

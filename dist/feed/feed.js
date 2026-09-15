@@ -85,6 +85,12 @@ function createFeed(crawler, options = {}) {
         return tick;
     }
     function start() {
+        // 幂等：重复 start 会重置 dwell 并再取一条，等于把当前这条静默丢掉
+        // （它还没播满 30 秒就被换走）。advance() 在未开始时也走 start()，
+        // 那条路径不受影响（started 仍为 false）。
+        if (started) {
+            return emit(false);
+        }
         started = true;
         lastTs = now();
         playedMs = 0;

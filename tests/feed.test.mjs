@@ -36,8 +36,21 @@ function ok(name, condition, detail) {
     console.log(`  ✗ ${name}${detail ? "  → " + detail : ""}`);
   }
 }
-const eq = (name, a, b) =>
+/**
+ * 值相等断言。**收到布尔值就直接报错** —— 谓词要用 ok()。
+ * 这个守卫来自真实教训：把 `x >= 1000` 这类谓词传给 eq() 已经犯过四次，
+ * 每次都表现为「期望 "1000"，实际 true」这种要读两遍才明白的消息。
+ * 注意只在期望值不是布尔时拦：布尔对布尔是合法比较，不是这个错误。
+ */
+const eq = (name, a, b) => {
+  // 只有「期望值不是布尔」时才拦：布尔对布尔（eq("x", flag, false)）是合法比较。
+  if (typeof a === "boolean" && typeof b !== "boolean") {
+    throw new Error(
+      `eq() 收到了布尔断言：「${name}」—— 谓词请改用 ok(name, 条件, 详情)`,
+    );
+  }
   ok(name, a === b, `期望 ${JSON.stringify(b)}，实际 ${JSON.stringify(a)}`);
+};
 
 const rec = (id) => ({ id });
 
@@ -327,6 +340,91 @@ async function main() {
     eq("没有内容时 start 不报 advanced", s0.advanced, false);
     ok("snapshot 反映 exhausted", feed.snapshot().exhausted === true);
     ok("没有内容时 current 为 null", feed.current() === null);
+  }
+
+  console.log("── start 必须幂等：重复 start 不该静默吃掉一条 ──");
+  {
+    let t = 0;
+    const fake = makeFakeCrawler([rec('s1'), rec('s2'), rec('s3')]);
+    const feed = createFeed(fake.crawler, { dwellMs: DWELL, now: () => t });
+
+    const first = feed.start();
+    eq('首次 start 拿到第一条', first.current && first.current.id, 's1');
+    t += 1000;
+    feed.tick();
+
+    const again = feed.start();
+    eq('重复 start 不报 advanced', again.advanced, false);
+    eq('当前条目没被换掉', feed.current().id, 's1');
+    ok('已播时长没被重置', feed.snapshot().playedMs >= 1000, String(feed.snapshot().playedMs));
+    eq('index 没被推进', feed.snapshot().index, 0);
+  }
+
+  console.log("── 未 start 就 advance：应当开始播放而不是丢一条 ──");
+  {
+    let t = 0;
+    const fake = makeFakeCrawler([rec('a1'), rec('a2')]);
+    const feed = createFeed(fake.crawler, { dwellMs: DWELL, now: () => t });
+    const startedTick = feed.advance();
+    eq('advance 在未开始时充当 start', startedTick.current && startedTick.current.id, 'a1');
+    eq('index 为 0（没有跳过第一条）', feed.snapshot().index, 0);
+  }
+
+  console.log("── 时序边界：dwell 到点与用户上滑同时发生 ──");
+  {
+    let t = 0;
+    const fake = makeFakeCrawler([rec('b1'), rec('b2'), rec('b3'), rec('b4')]);
+    const feed = createFeed(fake.crawler, { dwellMs: DWELL, now: () => t });
+    feed.start();
+    t += DWELL;
+    const auto = feed.tick();
+    eq('自动上滑到 b2', auto.current && auto.current.id, 'b2');
+
+    // 同一时刻用户也上滑：会再换一条。这是可接受的（用户本来就是想滑走），
+    // 关键是不能抛错、不能回退、不能出现 current 为 null 的 advanced。
+    let threwOut = null;
+    let manual = null;
+    try {
+      manual = feed.advance();
+    } catch (err) {
+      threwOut = err;
+    }
+    ok('紧接的 advance 不抛异常', threwOut === null, threwOut && String(threwOut.message));
+    eq('再换到 b3', manual && manual.current && manual.current.id, 'b3');
+    eq('index 单调递增到 2', feed.snapshot().index, 2);
+    ok('报 advanced 时 current 一定非空', !(manual.advanced && manual.current === null));
+    eq('已播时长归零', feed.snapshot().playedMs, 0);
+  }
+
+  console.log("── 空数据源下的边界调用都不能崩 ──");
+  {
+    let t = 0;
+    const fake = makeFakeCrawler([]);
+    const feed = createFeed(fake.crawler, { dwellMs: DWELL, now: () => t });
+    feed.start();
+    t += DWELL + 5000;
+
+    let threwErr = null;
+    try {
+      feed.tick();
+      feed.advance();
+      feed.tick();
+      feed.pause();
+      feed.tick();
+      feed.resume();
+      feed.tick();
+      feed.snapshot();
+      feed.timeOffsetSeconds();
+      feed.waiting();
+      feed.current();
+      feed.start();
+    } catch (err) {
+      threwErr = err;
+    }
+    ok('空数据源下连续调用不抛异常', threwErr === null, threwErr && String(threwErr.message));
+    eq('current 仍为 null', feed.current(), null);
+    eq('timeOffsetSeconds 兜底为 0（不去对 null 取 id）', feed.timeOffsetSeconds(), 0);
+    ok('snapshot 仍可用', typeof feed.snapshot().index === 'number');
   }
 
   console.log(`\n${pass}/${pass + failures.length} 通过`);

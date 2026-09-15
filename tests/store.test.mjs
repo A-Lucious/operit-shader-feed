@@ -34,8 +34,21 @@ function ok(name, condition, detail) {
     console.log(`  ✗ ${name}${detail ? "  → " + detail : ""}`);
   }
 }
-const eq = (name, a, b) =>
+/**
+ * 值相等断言。**收到布尔值就直接报错** —— 谓词要用 ok()。
+ * 这个守卫来自真实教训：把 `x >= 1000` 这类谓词传给 eq() 已经犯过四次，
+ * 每次都表现为「期望 "1000"，实际 true」这种要读两遍才明白的消息。
+ * 注意只在期望值不是布尔时拦：布尔对布尔是合法比较，不是这个错误。
+ */
+const eq = (name, a, b) => {
+  // 只有「期望值不是布尔」时才拦：布尔对布尔（eq("x", flag, false)）是合法比较。
+  if (typeof a === "boolean" && typeof b !== "boolean") {
+    throw new Error(
+      `eq() 收到了布尔断言：「${name}」—— 谓词请改用 ok(name, 条件, 详情)`,
+    );
+  }
   ok(name, a === b, `期望 ${JSON.stringify(b)}，实际 ${JSON.stringify(a)}`);
+};
 
 // 内存 FS 与字节数助手由 tests/helpers/memfs.mjs 提供 ——
 // 自测的测试要用同一份，所以在那里定义一次。
