@@ -184,6 +184,23 @@ resources/webview/          runner.html（含 touch-action:none）、probe.html
 
 ---
 
+## 发布流程（路线 B：仓库 + GitHub Release 资产）
+
+官方两条发布路线里，本仓库走 B（持续维护仓库 + 引用 Release 资产）。
+**市场登记必须在 Operit 应用里做** —— 服务端会核对「Release 创建者 == 当前登录的 GitHub 账号」，
+所以那步没法脚本化；其余都已固定成下面这套：
+
+1. `node tools/check.mjs` —— 唯一验证入口（tsc → deck 同步 → 全部套件 → 打包 → 包内逐字节比对）
+2. 改 `manifest.json` 里的 `version`，提交
+3. `gh release create v<version> release/com.shaderfeed.operit-<version>.toolpkg --title … --notes-file …`
+4. 在 Operit 发布页：选**与 Release 资产完全相同**的文件 → 「发布资源来源」选「引用 GitHub Release 资产」
+   → 填仓库链接、选 Release 与资产名 → 填市场元数据 → 登记
+
+两条容易踩的：
+
+- 市场版本号取自包内 manifest，发布页**不允许手改**；所以先改 manifest 再打包。
+- Release 正文只放作者自己的发布说明。官方明确不要求加 Operit 标记 / proof / 签名文本。
+
 ## 合规
 
 Shadertoy 上 shader 的默认授权是 **CC BY-NC-SA 3.0**，纹理同理。因此：
