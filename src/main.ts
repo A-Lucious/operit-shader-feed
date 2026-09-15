@@ -1,6 +1,21 @@
 import feedScreen from "./ui/feed/index.ui.js";
 import { SHADER_XML_RENDER_REGISTRATION } from "./plugin/chat-xml-render.js";
+import { createCompileIpcHandlers } from "./plugin/compile-ipc.js";
+import { createCompileLedger } from "./plugin/compile-ledger.js";
 import { SYSTEM_PROMPT_REGISTRATION } from "./plugin/system-prompt.js";
+import {
+  IPC_COMPILE_READ,
+  IPC_COMPILE_WRITE,
+} from "./shared/chat-shader-state.js";
+
+/**
+ * 编译结果账本 —— **这是唯一活在 main 上下文的状态**。
+ *
+ * 官方文档：“main 适合承载需要跨 UI、子包工具共享的内存态”。而编译结果的链路正好是：
+ *   聊天框 WebView（有 GL、能编译）→ ui 上下文 ipc.call → 这里 → 工具脚本（sandbox）读走 → AI
+ * 编译 GLSL 需要 WebGL，而工具与钩子跑在 QuickJS 里没有 GL，所以结果必须先回传再转手。
+ */
+const compileIpc = createCompileIpcHandlers(createCompileLedger());
 
 /**
  * 侧边栏路由。它会出现在市场入口和 `toolpkg:` 引用里，改它等于换入口，别随手改。
@@ -42,6 +57,17 @@ export function registerToolPkg(): boolean {
 
   // 让 AI 知道 <shader> 标签存在 —— 否则这个能力永远没人发现。
   ToolPkg.registerSystemPromptComposeHook(SYSTEM_PROMPT_REGISTRATION);
+
+  // 编译结果的两个通道：界面写、工具读。
+  //
+  // 放在 registerToolPkg() 里而不是模块顶层（官方文档的 ipc 示例是放顶层的）：
+  // 顶层注册的代价是“万一 ToolPkg 还没就绪就整个包加载失败”，而这里必定就绪；
+  // 而且注册期的禁止清单里只有 readResource / wasm.call 这类**操作**，ipc.on 属于声明。
+  ToolPkg.ipc.on(IPC_COMPILE_WRITE, (payload: unknown): boolean => {
+    compileIpc.write(payload);
+    return true;
+  });
+  ToolPkg.ipc.on(IPC_COMPILE_READ, (): string => compileIpc.read());
 
   return true;
 }

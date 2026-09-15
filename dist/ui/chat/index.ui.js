@@ -11,6 +11,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = Screen;
 const runner_resources_js_1 = require("../shared/runner-resources.js");
+const compile_ipc_js_1 = require("../../plugin/compile-ipc.js");
 const chat_shader_state_js_1 = require("../../shared/chat-shader-state.js");
 /** 命名避开组件内的 errorText 状态，否则会被它遮蔽（同名遮蔽后就不是函数了）。 */
 function toErrorText(error) {
@@ -52,10 +53,21 @@ function Screen(ctx) {
         script: "",
         probe: "",
     });
+    // lastCodeLength：下发时的代码长度。**必须放 ref，不能读 state** ——
+    // report 处理器是在 boot() 里注册一次的，闭包会捕获注册那一刻的 shaderCode（空串），
+    // 于是长度永远是 0，AI 就没法判断「读到的是不是我刚写那段」。
     const [flags] = ctx.useState("chatFlags", {
         booted: false,
+        lastCodeLength: 0,
     });
     const controller = ctx.createWebViewController("chat_shader_webview");
+    /**
+     * 把编译回执转给 main —— 这是 AI 拿到 GLSL 编译器报错的**唯一**途径。
+     * 失败必须静默：这条通道是尽力而为的，它挂了不该连带渲染框也看不见。
+     */
+    function writeCompileIpc(payload) {
+        Promise.resolve(ToolPkg.ipc.call(chat_shader_state_js_1.IPC_COMPILE_WRITE, payload)).catch(() => undefined);
+    }
     function sendShader() {
         if (!shaderCode) {
             setErrorText("没有收到 shader 代码（标签里是空的）。");
@@ -68,6 +80,10 @@ function Screen(ctx) {
             renderpass: [{ type: "image", inputs: [], code: shaderCode }],
         };
         const script = "__runnerLoad(" + JSON.stringify(payload) + ", { timeOffset: 0 });";
+        // 先记长度、再告诉 main「新代码已下发」：此后 AI 读到的是「还在编译」，
+        // 而不是上一次的报错 —— 读旧报错会让它去改一段自己已经改过的地方。
+        flags.lastCodeLength = shaderCode.length;
+        writeCompileIpc({ kind: "pending", codeLength: flags.lastCodeLength });
         Promise.resolve(controller.evaluateJavascript(script)).catch((error) => {
             setErrorText("下发失败: " + toErrorText(error));
         });
@@ -83,6 +99,15 @@ function Screen(ctx) {
                 const value = args.length > 0 ? args[0] : undefined;
                 const text = typeof value === "string" ? value : JSON.stringify(value);
                 setStatusText(summarizeReport(text));
+                // 编译回执转给 main —— AI 看不到界面，这是它拿到编译器报错的唯一途径。
+                // （value 可能是 JSON 字符串，也可能是对象；解析在 compile-ipc 里，
+                //   每秒一次的 stats 会在那里被丢掉，不会污染账本。）
+                const payload = (0, compile_ipc_js_1.toCompileIpcPayload)(value, {
+                    codeLength: flags.lastCodeLength,
+                });
+                if (payload) {
+                    writeCompileIpc(payload);
+                }
                 return true;
             },
             // 聊天里不需要换片，但页面挂了手势监听；给个空实现免得它报"宿主不可用"。

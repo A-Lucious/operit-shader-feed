@@ -12,7 +12,10 @@
 import { IPC_COMPILE_READ } from "../shared/chat-shader-state.js";
 
 /** 与 `ToolPkg.ipc.call` 同形，便于测试注入。 */
-export type IpcCaller = (channel: string, payload?: unknown) => Promise<unknown>;
+export type IpcCaller = (
+  channel: string,
+  payload?: unknown,
+) => Promise<unknown>;
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

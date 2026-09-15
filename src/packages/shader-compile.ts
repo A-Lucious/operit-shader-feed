@@ -33,7 +33,7 @@ import { readCompileResultText } from "../plugin/compile-tool.js";
  * 本文件其余部分刻意保持"只有一行 RPC"：逻辑都在 compile-tool.ts 里，那里能离线测。
  */
 export async function shader_last_compile_result(): Promise<string> {
-  return readCompileResultText((channel, payload) =>
-    ToolPkg.ipc.call(channel, payload),
-  );
+    return readCompileResultText((channel, payload) =>
+        ToolPkg.ipc.call(channel, payload),
+    );
 }

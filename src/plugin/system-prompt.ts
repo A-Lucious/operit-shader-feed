@@ -16,13 +16,18 @@ const PROMPT_ZH = [
  "聊天内可实时渲染 shader：在回复里写出 <shader>…</shader>，中间放 Shadertoy 风格的 GLSL，",
  "聊天里会显示成一块持续动的画面。代码必须定义 void mainImage(out vec4 fragColor, in vec2 fragCoord)，",
  "不要写 main()。代码里的 < 与 > 要写成 &lt; 与 &gt;（或用 <![CDATA[ … ]]> 包起来），否则 XML 解析会失败。",
+ "写完 <shader> 后调 shader_last_compile_result 读编译结果（编译需要 WebGL，工具本身看不到，结果由渲染框回传）：",
+ "返回「还在编译中」就等 1～2 秒再调；失败则按报错原文修改，然后重新写完整代码并再读一次，直到成功。",
 ].join("");
 
 const PROMPT_EN = [
  "Shaders can be rendered live inside the chat: emit <shader>…</shader> with Shadertoy-style GLSL inside, ",
  "and it renders as a continuously animating block. The code must define ",
  "void mainImage(out vec4 fragColor, in vec2 fragCoord) — do not write main(). ",
- "Escape < and > as &lt; and &gt; (or wrap the code in <![CDATA[ … ]]>), otherwise XML parsing fails.",
+ "Escape < and > as &lt; and &gt; (or wrap the code in <![CDATA[ … ]]>), otherwise XML parsing fails. ",
+ "After writing <shader>, call shader_last_compile_result to read the compile result (compiling needs WebGL, which ",
+ "tools lack, so the render box relays it): if it reports that compiling is still in progress, wait 1-2 seconds and call ",
+ "again; on failure, fix the code against the reported errors, then re-emit the full shader and read again, until it compiles.",
 ].join("");
 
 export function onSystemPromptCompose(

@@ -9,7 +9,7 @@
  */
 
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,7 +62,10 @@ async function main() {
     });
     ok("文本原样返回（不加工、不截断）", text.includes(ERR), text);
     eq("用的是共享常量里的通道名", seen[0][0], IPC_COMPILE_READ);
-    ok("调用时带了 payload", typeof seen[0][1] === "object" && seen[0][1] !== null);
+    ok(
+      "调用时带了 payload",
+      typeof seen[0][1] === "object" && seen[0][1] !== null,
+    );
     eq("只调用了一次", seen.length, 1);
   }
 
@@ -71,7 +74,11 @@ async function main() {
     const thrown = await readCompileResultText(async () => {
       throw new Error("no handler registered for channel");
     });
-    ok("不抛异常，返回可用文本", typeof thrown === "string" && thrown.length > 0, thrown);
+    ok(
+      "不抛异常，返回可用文本",
+      typeof thrown === "string" && thrown.length > 0,
+      thrown,
+    );
     ok("说清是通道问题", thrown.includes("通道未就绪"), thrown);
     ok("保留了原始错误信息（便于排查）", thrown.includes("no handler"), thrown);
     ok("给出可行动项", thrown.includes("状态条"), thrown);
@@ -133,6 +140,52 @@ async function main() {
     }
     eq("组合数", checked, 27);
     eq("没有空话/串值", bad, "");
+  }
+
+  console.log("── 三处名字必须一致：METADATA ↔ 导出函数 ↔ 提示词 ──");
+  {
+    // 这三处里任何一处漂了，表现都是「工具不存在」或「AI 永远不调它」，
+    // 而且只能在真机上发现。METADATA 只能是字面量（它是注释里的 JSON），
+    // 所以名字天然有三份，只能靠这条断言把它们钉在一起。
+    const scriptText = readFileSync(join(ROOT, "dist/packages/shader-compile.js"), "utf8");
+    const metaMatch = scriptText.match(/\/\*\s*METADATA\s*([\s\S]*?)\*\//);
+    ok("子包脚本里有 METADATA 块", metaMatch !== null, "没有就等于这个包没有工具");
+
+    let meta = {};
+    try {
+      meta = JSON.parse((metaMatch && metaMatch[1]) || "{}");
+    } catch (err) {
+      ok("METADATA 是合法 JSON", false, String(err && err.message));
+    }
+    ok("METADATA 是合法 JSON", typeof meta === "object" && meta !== null);
+
+    const tools = Array.isArray(meta.tools) ? meta.tools : [];
+    eq("声明了一个工具", tools.length, 1);
+    const tool = tools[0] || {};
+    const toolName = String(tool.name || "");
+    eq("工具名是预期那个", toolName, "shader_last_compile_result");
+
+    ok(
+      "同名函数真的有导出（宿主按名字找导出，改名只会表现为「工具不存在」）",
+      new RegExp("exports\\." + toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*=").test(
+        scriptText,
+      ),
+      "产物里找不到 exports." + toolName,
+    );
+    eq("参数列表存在且为空（宿主会读它）", Array.isArray(tool.parameters), true);
+    eq("参数个数为 0", (tool.parameters || []).length, 0);
+
+    const desc = JSON.stringify(tool.description || "");
+    ok("描述里解释了为什么必须调用它（编译需要 WebGL）", desc.includes("WebGL"), desc.slice(0, 120));
+    ok("描述里说了失败时该干嘛（按报错改）", desc.includes("报错") || desc.includes("errors"), desc.slice(0, 160));
+
+    const promptText = readFileSync(join(ROOT, "dist/plugin/system-prompt.js"), "utf8");
+    const mentioned = (promptText.match(new RegExp(toolName, "g")) || []).length;
+    ok(
+      "中英两份提示词都提到了这个工具名（只提一份的话另一种语言的用户就永远用不上）",
+      mentioned >= 2,
+      `提到 ${mentioned} 次`,
+    );
   }
 
   console.log(`\n${pass}/${pass + failures.length} 通过`);
