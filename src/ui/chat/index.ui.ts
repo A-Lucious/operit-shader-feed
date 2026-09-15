@@ -4,14 +4,20 @@
  * 由 xml_render 钩子触发：AI 在回复里写出 `<shader>…</shader>`，钩子把代码通过 `state`
  * 下发到这里，这里用 WebView 渲染成**活的画面**（不是截图，它会一直动）。
  *
- * ⚠️ 这里只用**自包含 HTML**：deck 在编译期内联进 HTML 字符串（见 tools/embed-runner.mjs）。
+ * ⚠️ 这里**不用 JS bridge，也不用握手**。两条方向各有不依赖 bridge 的路：
  *
- * 为什么不再走「虚拟域 + 资源拦截 + readResource 落盘路径」：
- *   真机实测那条路根本不工作 ——
- *       net::ERR_CONNECTION_CLOSED  https://shaderfeed.local/runner.html
- *   即拦截没生效，WebView 跑到**真网络**上找那个域名，于是整条链路（含 JS bridge 握手）
- *   一起断掉，界面上只剩一句「网页无法打开」。
- *   自包含 HTML 把这一整类失败模式移除：没有域名、没有网络、没有文件系统、没有拦截。
+ *   界面 → 页面：把 payload 直接字符串替换进 HTML（`window.__pendingShader`），
+ *                页面一解析完就知道该渲染什么。
+ *   页面 → 界面：页面把回执 `console.log("[shader-report] …")`，宿主用
+ *                `onConsoleMessage`（WebViewClient 层面的钩子）送到这里。
+ *
+ * 为什么必须这样：宿主挂 JS bridge 的时机是 `onPageStarted` / `onPageFinished`
+ * （见 Operit 的 ToolPkgComposeDslWebView.kt），而页面脚本在**解析阶段**就跑完了。
+ * 真机上实测——**等了 10 秒 `ShaderHost` 也没出现**，于是 deck 拿不到 shader、
+ * 界面也收不到回执，框里只剩一句「没有收到宿主握手」。那条路不能当主路径。
+ *
+ * 另外整个页面还是**自包含 HTML**：没有域名、没有网络、没有文件系统、没有资源拦截
+ * （真机上也实测过虚拟域拦截不生效：net::ERR_CONNECTION_CLOSED）。
  */
 
 import { SELF_CONTAINED_HTML } from "../../deck/embedded.js";
@@ -20,21 +26,23 @@ import {
   type CompileIpcWrite,
 } from "../../plugin/compile-ipc.js";
 import {
-  HOST_INTERFACE_NAME,
   IPC_COMPILE_WRITE,
   STATE_KEY_SHADER_CODE,
   STATE_KEY_SHADER_TITLE,
 } from "../../shared/chat-shader-state.js";
 
 /**
- * 页面的基准地址。
- *
- * 用 about:blank 而不是一个 https 域名：真机实测过 —— 给 https://shaderfeed.local/ 时
- * WebView 会自动去请求 https://shaderfeed.local/favicon.ico，那个请求当然连不上
- * （ERR_CONNECTION_CLOSED），然后报给我的 onReceivedError，**盖住了真正的错误**。
- * 页面内容全内联，不需要任何自的 origin。
+ * 内联 payload 的占位符。必须与 resources/webview/runner.html 里那一处一字不差
+ * （生成自包含 HTML 时它就在页面里），否则页面永远不知道该渲染什么。
+ * 有一条测试盯着这个耦合。
  */
-const PAGE_BASE_URL = "about:blank";
+const PENDING_MARKER = "/*__PENDING_SHADER__*/null";
+
+/**
+ * 回执前缀。必须与 deck（src/deck/shader-deck.js 的 REPORT_PREFIX）一字不差。
+ * 同样有测试盯着。
+ */
+const REPORT_PREFIX = "[shader-report] ";
 
 /** 命名避开组件内的 errorText 状态，否则会被它遮蔽（同名遮蔽后就不是函数了）。 */
 function toErrorText(error: unknown): string {
@@ -67,27 +75,30 @@ function summarizeReport(text: string): string {
   }
 }
 
-/** 从宿主给的 console 事件里尽量取出一句可读的话（字段名不保证，所以只认字符串）。 */
-function summarizeConsole(event: unknown): string {
+/**
+ * 把 payload 写进 HTML。
+ *
+ * 用**函数式**替换：`String.replace` 的替换串里 `$&`、`$1` 之类有特殊含义，
+ * 而 shader 代码里完全可能出现 `$`（会被静默改写、表现为画面错乱）。
+ */
+function buildPageHtml(payload: unknown): string {
+  const json = JSON.stringify(payload);
+  return SELF_CONTAINED_HTML.replace(PENDING_MARKER, () => json);
+}
+
+/** 从宿主给的 console 事件里取出消息文本（字段名不保证，所以只认字符串）。 */
+function consoleText(event: unknown): string {
   if (!event || typeof event !== "object") {
     return "";
   }
   const e = event as Record<string, unknown>;
-  const level = typeof e.level === "string" ? e.level.toLowerCase() : "";
-  const message =
-    typeof e.message === "string"
-      ? e.message
-      : typeof e.text === "string"
-        ? e.text
-        : "";
-  if (!message) {
-    return "";
+  if (typeof e.message === "string") {
+    return e.message;
   }
-  // 只把 error/warn 抬到状态行；普通 log 会被每秒一次的 stats 刷掉，没意义。
-  if (level && level !== "error" && level !== "warn") {
-    return "";
+  if (typeof e.text === "string") {
+    return e.text;
   }
-  return (level ? level + ": " : "") + message.slice(0, 200);
+  return "";
 }
 
 export default function Screen(ctx: ComposeDslContext): ComposeNode {
@@ -100,14 +111,13 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
 
   const [statusText, setStatusText] = ctx.useState(
     "chatStatus",
-    "渲染器就绪，等待页面握手…",
+    "正在装载渲染器…",
   );
   const [errorText, setErrorText] = ctx.useState("chatError", "");
   const [ready, setReady] = ctx.useState("chatReady", false);
 
   // 可变引用。除了 booted，其余字段都是**为了绕开闭包捕获**：
-  // report / ready 处理器只注册一次，直接读 state 会捕获注册那一刻的值。
-  // 真机上的后果是「黑框且什么都不报」—— 因为读到的 shaderCode 是空串。
+  // console 处理器只注册一次（它挂在 WebView 节点上），直接读 state 会捕获注册那一刻的值。
   const [flags] = ctx.useState<{
     booted: boolean;
     lastCodeLength: number;
@@ -119,16 +129,14 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     code: "",
     title: "",
   });
-  // 每次渲染都把最新值同步进去（state 晚到也能被后续的握手/回执读到）。
+  // 每次渲染都把最新值同步进去（state 晚到也能被后续的回执读到）。
   flags.code = shaderCode;
   flags.title = shaderTitle;
-
-  const controller = ctx.createWebViewController("chat_shader_webview");
 
   /**
    * 把编译回执转给 main —— 这是 AI 拿到 GLSL 编译器报错的**唯一**途径。
    * 失败**不能静默**：这条方向挂掉的话，AI 永远读不到编译结果，
-   * 而真正的现象（工具报“读不到”）只在对话里出现 —— 必须在这里留下原因。
+   * 而真正的现象（工具报"读不到"）只在对话里出现 —— 必须在这里留下原因。
    */
   function writeCompileIpc(payload: CompileIpcWrite): void {
     Promise.resolve(ToolPkg.ipc.call(IPC_COMPILE_WRITE, payload)).catch(
@@ -138,76 +146,16 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     );
   }
 
-  function sendShader(): void {
-    // 从 ref 读，不从闭包读：state 可能晚于 registerHost() 到达。
-    const code = flags.code;
-    if (!code) {
-      setErrorText("没有收到 shader 代码（state 里是空的）。");
-      return;
+  /** 页面里 deck 的回执（走 console 送上来）。 */
+  function onReport(json: string): void {
+    setStatusText(summarizeReport(json));
+    // 每秒一次的 stats 会被 toCompileIpcPayload 丢掉，不会污染账本。
+    const payload = toCompileIpcPayload(json, {
+      codeLength: flags.lastCodeLength,
+    });
+    if (payload) {
+      writeCompileIpc(payload);
     }
-    // AI 写的是 Shadertoy 风格的 mainImage，这里包成 deck 认的 renderpass 形状。
-    // 没有通道：聊天里没有纹理可绑。
-    const payload = {
-      info: { id: "chat_inline", name: flags.title || "chat shader" },
-      renderpass: [{ type: "image", inputs: [], code: code }],
-    };
-    const script =
-      "__runnerLoad(" + JSON.stringify(payload) + ", { timeOffset: 0 });";
-    // 先记长度、再告诉 main「新代码已下发」：此后 AI 读到的是「还在编译」，
-    // 而不是上一次的报错 —— 读旧报错会让它去改一段自己已经改过的地方。
-    flags.lastCodeLength = code.length;
-    writeCompileIpc({ kind: "pending", codeLength: flags.lastCodeLength });
-    Promise.resolve(controller.evaluateJavascript(script)).catch(
-      (error: unknown) => {
-        setErrorText("下发失败: " + toErrorText(error));
-      },
-    );
-  }
-
-  /**
-   * 把下发推迟一拍。
-   *
-   * ⚠️ 不能在握手回调里**同步**调 `evaluateJavascript`：宿主侧那是阻塞实现
-   * （`evaluateJavascriptBlocking` 会发到主线程等 WebView 回调，还有超时），
-   * 而此刻页面的 JS 正卡在这次握手调用上等我们返回 —— 两边互等，最后超时抛错。
-   * 真机上的表现就是「黑框，什么提示都没有」。
-   */
-  function scheduleSend(): void {
-    if (typeof setTimeout === "function") {
-      setTimeout(() => sendShader(), 0);
-      return;
-    }
-    sendShader();
-  }
-
-  function registerHost(): void {
-    controller.removeJavascriptInterface(HOST_INTERFACE_NAME);
-    const host: ComposeWebViewJavascriptInterface = {
-      ready: () => {
-        // 页面脚本跑起来了 —— 这一句能被调用，就说明自包含 HTML 那条路是通的。
-        // 不能在这里同步下发（见 scheduleSend 的注释）。
-        scheduleSend();
-        return true;
-      },
-      report: (...args: unknown[]) => {
-        const value = args.length > 0 ? args[0] : undefined;
-        const text = typeof value === "string" ? value : JSON.stringify(value);
-        setStatusText(summarizeReport(text));
-        // 编译回执转给 main —— AI 看不到界面，这是它拿到编译器报错的唯一途径。
-        // （value 可能是 JSON 字符串，也可能是对象；解析在 compile-ipc 里，
-        //   每秒一次的 stats 会在那里被丢掉，不会污染账本。）
-        const payload = toCompileIpcPayload(value, {
-          codeLength: flags.lastCodeLength,
-        });
-        if (payload) {
-          writeCompileIpc(payload);
-        }
-        return true;
-      },
-      // 聊天里不需要换片，但页面挂了手势监听；给个空实现免得它报「宿主不可用」。
-      swipe: () => true,
-    };
-    controller.addJavascriptInterface(HOST_INTERFACE_NAME, host);
   }
 
   function boot(): void {
@@ -215,11 +163,20 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
       return;
     }
     flags.booted = true;
-    // 再没有异步装载：HTML 是编译期内联进来的字符串，直接把 bridge 挂上就行。
-    // 顺序很重要 —— WebView 只有 ready 之后才渲染，所以 bridge 一定先于页面存在。
-    registerHost();
+    // 没有异步装载了：HTML 是编译期内联的字符串，payload 是运行时字符串替换进去的。
     setReady(true);
+    setStatusText("渲染器就绪，等待页面回执…");
   }
+
+  // 每次渲染都重新构造（字符串替换很便宜），保证拿到的是当前 state。
+  const pageHtml = buildPageHtml({
+    info: {
+      id: "chat_inline",
+      name: flags.title || "chat shader",
+    },
+    renderpass: [{ type: "image", inputs: [], code: flags.code }],
+    __timeOffset: 0,
+  });
 
   const header = UI.Text({
     text: shaderTitle ? "Shader · " + shaderTitle : "Shader",
@@ -248,10 +205,10 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   const body = ready
     ? UI.WebView({
         key: "chat_shader_webview",
-        controller,
-        // 关键：直接给 HTML，不走 url。没有域名、没有网络请求、没有资源拦截。
-        html: SELF_CONTAINED_HTML,
-        baseUrl: PAGE_BASE_URL,
+        // 关键：直接给 HTML（payload 已内联），不走 url。
+        // 没有域名、没有网络请求、没有资源拦截、没有 JS bridge。
+        html: pageHtml,
+        baseUrl: "about:blank",
         // 显式 MIME/编码：宿主把 html 交给 loadDataWithBaseURL，别让嗅探决定。
         mimeType: "text/html",
         encoding: "utf-8",
@@ -267,17 +224,26 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
           const e = (event || {}) as Record<string, unknown>;
           const url = typeof e.url === "string" ? e.url : "";
           // favicon 之类的子资源失败会把真正的错误盖住。真机实测过一次：
-          // 屏幕上只有一句 shaderfeed.local/favicon 的 ERR_CONNECTION_CLOSED，
-          // 看起来像整个页面挂了，实际页面好好的。
+          // 屏幕上只有一句 favicon 的 ERR_CONNECTION_CLOSED，看起来像整个页面挂了。
           if (/favicon/i.test(url)) {
             return;
           }
           setErrorText("页面错误: " + JSON.stringify(event).slice(0, 200));
         },
         onConsoleMessage: (event: unknown) => {
-          const line = summarizeConsole(event);
-          if (line) {
-            setErrorText("页面 " + line);
+          const text = consoleText(event);
+          if (!text) {
+            return;
+          }
+          const at = text.indexOf(REPORT_PREFIX);
+          if (at >= 0) {
+            onReport(text.slice(at + REPORT_PREFIX.length));
+            return;
+          }
+          // 页面里 deck 的 setStatus 也会 console.log（前缀是 [runner]）——
+          // 把它当补充诊断，但不要盖掉回执带来的状态。
+          if (text.indexOf("[runner]") >= 0 && !errorText) {
+            setStatusText(text.replace("[runner]", "").trim().slice(0, 200));
           }
         },
       })

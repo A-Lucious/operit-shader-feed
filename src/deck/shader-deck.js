@@ -869,9 +869,19 @@
     if (typeof console !== "undefined") console.log("[runner] " + text);
   }
 
+  var REPORT_PREFIX = "[shader-report] ";
+
   function report(payload) {
     var json = JSON.stringify(payload);
     window.__lastReport = json;
+    // 回执**首走 console**：宿主有 onConsoleMessage（WebViewClient 层面的钩子），
+    // 不依赖 addJavascriptInterface。真机上 JS bridge 根本挂不上（宿主在
+    // onPageStarted/onPageFinished 才安装，而本脚本在解析阶段就跑完了），
+    // 所以不能让回执只依赖那一条路。
+    if (typeof console !== "undefined" && console.log) {
+      console.log(REPORT_PREFIX + json);
+    }
+    // 保留了 bridge 路径：万一日后 bridge 可用，两边都能到。
     var host = window.ShaderHost;
     if (host && typeof host.report === "function") {
       try {
@@ -1151,9 +1161,23 @@
     return false;
   }
 
-  if (!tryHostHandshake()) {
+  // ---- 启动 ----
+  //
+  // 主路径：渲染**内联在页面里**的 shader。界面在把 HTML 交给 WebView 之前，
+  // 就把 payload 替换进了 window.__pendingShader —— 不需要握手、不需要 JS bridge。
+  //
+  // 为什么不再依赖握手：宿主挂 JS bridge 的时机是 onPageStarted / onPageFinished
+  //（见 ToolPkgComposeDslWebView.kt），而本脚本在解析阶段就跑完了；真机上实测
+  // **等了 10 秒 bridge 也没出现**，所以那条路不能当主路径。
+  var pending = window.__pendingShader;
+  if (pending && typeof pending === "object") {
+    var pendingOffset =
+      typeof pending.__timeOffset === "number" ? pending.__timeOffset : 0;
+    window.__runnerLoad(pending, { timeOffset: pendingOffset });
+  } else if (!tryHostHandshake()) {
+    // 兜底：页面里没有内联 payload（例如手工打开这份 HTML 调试）才去等宿主握手。
     setStatus("等待宿主握手…");
-    var hostTimer = setInterval(function () {
+    var hostTimer = setInterval(() => {
       hostWaited += HOST_POLL_MS;
       if (tryHostHandshake()) {
         clearInterval(hostTimer);
@@ -1162,9 +1186,9 @@
       if (hostWaited >= HOST_WAIT_MS) {
         clearInterval(hostTimer);
         setStatus(
-          "没有收到宿主握手：ShaderHost 未注入（等了 " +
+          "页面里既没有内联 shader，也没收到宿主握手（等了 " +
             Math.round(HOST_WAIT_MS / 1000) +
-            " 秒仍未出现 —— bridge 名字不一致，或宿主没安装 JS 接口）",
+            " 秒）—— 界面可能没把 payload 替换进 HTML",
         );
       }
     }, HOST_POLL_MS);

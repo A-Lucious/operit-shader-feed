@@ -57,6 +57,16 @@ function buildSelfContainedHtml() {
     "<script>\n" + deck.trimEnd() + "\n</script>",
   );
 
+  // 生成物必须带有**内联 payload 的占位符**：界面在把这份 HTML 交给 WebView 前
+  // 会把 marker 替换成真正的 payload。少了它，页面就永远不知道该渲染什么。
+  const PENDING_MARKER = "/*__PENDING_SHADER__*/null";
+  if (!html.includes(PENDING_MARKER)) {
+    throw new Error(
+      `自包含 HTML 里找不到内联 payload 占位符 ${PENDING_MARKER} —— ` +
+        `界面靠字符串替换把 shader 放进页面，少了它就等于没有画面。`,
+    );
+  }
+
   // 生成物必须完全自包含：任何 src/href 外链都意味着又一次「真机上去网络上找」。
   // 先去掉 HTML 注释再查 —— 注释不会发请求，但人会在里面写示例链接
   //（这份 runner.html 里就写着为何不能用外链，那段说明本身带一个 src="…"）。

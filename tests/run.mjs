@@ -584,12 +584,78 @@ function buildLateHostPage() {
   }, 2500);
 })();
 </script>`;
-  const headEnd = real.indexOf('</head>');
-  const bodyEnd = real.lastIndexOf('</body>');
+  const headEnd = real.indexOf("</head>");
+  const bodyEnd = real.lastIndexOf("</body>");
+  if (headEnd < 0 || bodyEnd < 0) {
+    throw new Error("自包含 HTML 结构不符预期：找不到 head 或 body 的结束位置");
+  }
+  return (
+    real.slice(0, headEnd) +
+    hostStub +
+    real.slice(headEnd, bodyEnd) +
+    driver +
+    real.slice(bodyEnd)
+  );
+}
+
+/**
+ * 页面 E：**完全没有宿主**，payload 内联在 HTML 里 —— 真机现在的场景。
+ *
+ * 真机上 JS bridge 挂不上（宿主在 onPageStarted / onPageFinished 才安装，而页面脚本在
+ * 解析阶段就跑完了；实测等了 10 秒 ShaderHost 也没出现），所以「握手」这条路根本不能依赖。
+ * 现在的设计不靠它：界面把 payload 直接字符串替换进 HTML（window.__pendingShader），
+ * 页面一解析完就渲染；回执走 console.log，由宿主的 onConsoleMessage 收。
+ *
+ * 这一页**故意不注入任何 ShaderHost**，断言：
+ *   ① deck 仍然把 shader 编译并渲染出来；② 回执经 console 发了出来。
+ */
+function buildNoHostPage() {
+  const html = SELF_CONTAINED_HTML.replace(
+    '/*__PENDING_SHADER__*/null',
+    () => JSON.stringify(FIXTURES[0].json),
+  );
+  // 在 deck 之前把 console.log 接管，模拟宿主的 onConsoleMessage。
+  const capture = `<script>
+  window.__console = [];
+  (function () {
+    var original = console.log;
+    console.log = function () {
+      try { window.__console.push(Array.prototype.join.call(arguments, ' ')); } catch (e) {}
+      if (original) original.apply(console, arguments);
+    };
+  })();
+</script>
+`;
+  const driver = `<pre id="out">pending</pre>
+<script>
+(function () {
+  var results = [];
+  function rec(n, ok, d) { results.push({ name: n, ok: !!ok, detail: d || '' }); }
+  window.setTimeout(function () {
+    var lines = window.__console.filter(function (l) { return l.indexOf('[shader-report] ') >= 0; });
+    var reports = lines.map(function (l) { return JSON.parse(l.slice(l.indexOf('[shader-report] ') + 16)); });
+    var stages = reports.map(function (r) { return r.stage; });
+    var stats = reports.filter(function (r) { return r.stage === 'stats'; });
+
+    rec('这一页确实没有 ShaderHost（就是在测无 bridge 路径）', typeof window.ShaderHost === 'undefined', typeof window.ShaderHost);
+    rec('deck 已执行', typeof window.ShaderDeck === 'object', String(window.ShaderDeck));
+    rec('收到了经 console 发来的回执', lines.length > 0, 'lines=' + lines.length);
+    rec('回执里有 running（说明编译成功）', stages.indexOf('running') >= 0, JSON.stringify(stages));
+    rec('已经在出帧（stats 且 frames>0）', stats.length > 0 && stats[stats.length - 1].frames > 0, JSON.stringify(stats[stats.length - 1] || null));
+
+    var failed = 0;
+    for (var i = 0; i < results.length; i++) { if (!results[i].ok) failed++; }
+    document.getElementById('out').textContent = encodeURIComponent(JSON.stringify({ total: results.length, failed: failed, results: results }));
+    document.title = failed ? 'FAIL' : 'PASS';
+  }, 2500);
+})();
+</script>`;
+  const headEnd = html.indexOf('</head>');
+  const bodyEnd = html.lastIndexOf('</body>');
   if (headEnd < 0 || bodyEnd < 0) {
     throw new Error('自包含 HTML 结构不符预期：找不到 head 或 body 的结束位置');
   }
-  return real.slice(0, headEnd) + hostStub + real.slice(headEnd, bodyEnd) + driver + real.slice(bodyEnd);
+  return html.slice(0, headEnd) + capture + html.slice(headEnd, bodyEnd) + driver + html.slice(bodyEnd);
 }
 
 function main() {
@@ -615,6 +681,12 @@ function main() {
       "页面 D · 宿主晚到（真机失败复现）",
       "runner-pageD.html",
       buildLateHostPage(),
+      6000,
+    ],
+    [
+      "页面 E · 无宿主 + 内联 payload（真机现况）",
+      "runner-pageE.html",
+      buildNoHostPage(),
       6000,
     ],
   ];

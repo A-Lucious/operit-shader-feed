@@ -72,6 +72,13 @@
     -->
     <canvas id="gl"></canvas>
     <pre id="status"></pre>
+    <!--
+      界面在把这份 HTML 交给 WebView **之前**，会把下面这个占位符换成真正的 payload
+      （字符串替换，见 src/ui/chat/index.ui.ts）。
+      所以页面一解析完就已经知道自己该渲染什么 —— 不需要握手、不需要 JS bridge。
+      占位符必须与界面里的常量一字不差；生成器与测试都会盯住它。
+    -->
+    <script>window.__pendingShader = /*__PENDING_SHADER__*/null;</script>
     <script src="runner.js"></script>
   </body>
 </html>

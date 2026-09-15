@@ -100,60 +100,57 @@ function main() {
     !/(src|href)\s*=\s*["']runner\.js["']/.test(withoutComments),
     "",
   );
-  // 内联进 <script> 时唯一能毁掉页面的东西是提前闭合。
-  // 所以不去数 <script（注释与字串里都可能有），只断言结束标签恰好出现一次。
+  // 页面里现在是两个 script：① 内联 payload 占位符 ② deck 本体。
+  // 数量本身就是结构断言（多了 = 占位符被复制过；少了 = 其中一处没了）。
   eq(
-    "script 结束标签恰好一次（没有提前闭合）",
+    "script 标签就那两个（占位符 + deck），没有提前闭合",
     (withoutComments.match(/<\/script/gi) || []).length,
-    1,
+    2,
   );
 
-  console.log(
-    "── bridge 名字：写错一个字就是「永远不握手」，而那只在真机暴露 ──",
-  );
+  console.log("── 两条不依赖 bridge 的通道：内联 payload + console 回执 ──");
   {
-    eq("界面侧常量就是 ShaderHost", HOST_INTERFACE_NAME, "ShaderHost");
+    // 真机上 JS bridge 挂不上（宿主在 onPageStarted/onPageFinished 才安装，而页面脚本
+    // 在解析阶段就跑完了；实测等了 10 秒 ShaderHost 也没出现）。所以两条方向都
+    // **不再依赖 bridge** —— 下面每条断言都是这个设计的支撑点。
+    const chatUi = readFileSync(CHAT_UI_JS, "utf8");
+
     ok(
-      `deck 读的是同一个名字（window.${HOST_INTERFACE_NAME}）`,
+      "聊天界面不再使用 JS bridge / controller（整条移除，而不是留着不用）",
+      !chatUi.includes("addJavascriptInterface") &&
+        !chatUi.includes("createWebViewController"),
+      "界面里还有 bridge 痕迹",
+    );
+    ok(
+      "聊天界面用 html 属性给页面（不走网络/拦截/bridge）",
+      chatUi.includes("html:"),
+      "",
+    );
+    ok(
+      "聊天界面订阅 onConsoleMessage（回执通道）",
+      chatUi.includes("onConsoleMessage"),
+      "",
+    );
+
+    // 耦合一：内联 payload 的占位符。两边写岔了，页面就永远不知道该渲染什么。
+    ok("界面里带着内联 payload 占位符", chatUi.includes("__PENDING_SHADER__"), "");
+    ok("页面里也有同一个占位符", html.includes("/*__PENDING_SHADER__*/null"), "");
+    ok(
+      "deck 优先读内联 payload（而不是只靠握手）",
+      html.includes("__pendingShader"),
+      "deck 里找不到 __pendingShader",
+    );
+
+    // 耦合二：回执前缀。两边不一致的话，界面一条回执也认不出来。
+    ok("界面里带着回执前缀", chatUi.includes("[shader-report]"), "");
+    ok("deck 里也用同一个前缀发回执", html.includes("[shader-report]"), "");
+
+    // 握手降级为兜底，但名字仍然不能写岔（手工调试时还会走到它）。
+    eq("兜底路径的 bridge 名字仍然是 ShaderHost", HOST_INTERFACE_NAME, "ShaderHost");
+    ok(
+      `deck 的兜底路径读的也是 window.${HOST_INTERFACE_NAME}`,
       html.includes(`window.${HOST_INTERFACE_NAME}`),
       "deck 里找不到该名字",
-    );
-    ok(
-      "deck 会调 ready()（不调的话界面一直停在「等待页面握手」）",
-      /\.ready\s*\(/.test(html),
-      "deck 里找不到 .ready( 调用",
-    );
-    // 真机失败的根因就在这里：宿主是在页面加载**之后**（onPageStarted/onPageFinished）
-    // 才安装 JS 接口的，而 deck 脚本在解析阶段就跑完了 —— 末尾只查一次必然扑空，
-    // 表现是「框里只有一句『没有收到宿主握手』」。所以必须断言它在轮询。
-    ok(
-      "deck 会轮询等待宿主（不是末尾只查一次）",
-      /setInterval/.test(html) && /tryHostHandshake/.test(html),
-      "deck 里找不到轮询逻辑",
-    );
-
-    // 界面侧：必须真的把 ShaderHost 注册进 bridge，且用的是同一个常量
-    const chatUi = readFileSync(CHAT_UI_JS, "utf8");
-    ok(
-      "聊天界面用共享常量注册 bridge（不是写死的字面量）",
-      chatUi.includes("HOST_INTERFACE_NAME"),
-      "",
-    );
-    ok(
-      "聊天界面调用 addJavascriptInterface",
-      chatUi.includes("addJavascriptInterface"),
-      "",
-    );
-    ok(
-      "聊天界面用 html 属性而不是 url（不走网络/拦截）",
-      chatUi.includes(".html(") || chatUi.includes("html:"),
-      "",
-    );
-    ok(
-      "聊天界面不再引用被删的虚拟域拦截",
-      !chatUi.includes("onInterceptRequest") &&
-        !chatUi.includes("runner-resources"),
-      "",
     );
   }
 
@@ -162,7 +159,9 @@ function main() {
     console.error(`✗ ${failures.length} 项失败`);
     process.exit(1);
   }
-  console.log("✓ 自包含性（无外链）+ 页面结构 + bridge 名字三处一致 全部锁住");
+  console.log(
+    "✓ 自包含（无外链）+ 页面结构 + 两条不依赖 bridge 的通道（内联 payload / console 回执）全部锁住",
+  );
 }
 
 main();
