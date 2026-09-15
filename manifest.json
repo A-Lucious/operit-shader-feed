@@ -1,18 +1,16 @@
 {
   "schema_version": 1,
   "toolpkg_id": "com.shaderfeed.operit",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "api_version": "1.0.0",
   "main": "dist/main.js",
   "display_name": {
-    "zh": "Shader 流",
-    "en": "Shader Feed",
-    "default": "Shader Feed"
+    "zh": "聊天 Shader 渲染",
+    "en": "Chat Shader Render"
   },
   "description": {
-    "zh": "Shader 流：把 Shadertoy shader 在侧边栏 WebView 里实时渲染。带硬件测量页（WebGL context 上限与各画质档实测帧率）、接口契约探测页（在真实会话里实测数据接口）、缓存面板（占用 + 真实绝对路径 + 一键清理），以及**不联网的设备自测**（用内置假数据跑通整条流水线）。",
-    "en": "Shader Feed: live Shadertoy rendering in a sidebar WebView, plus a hardware probe (WebGL context limit and per-quality-scale frame rates), an interface-contract discovery page for a live session, a cache panel (usage, real absolute path, one-tap clear), and an offline self-test that drives the whole pipeline with built-in fixtures.",
-    "default": "Live Shadertoy rendering plus hardware, interface-contract, cache and offline self-test panels."
+    "zh": "在聊天里实时渲染 shader：AI 回复中写出 <shader>…</shader>（Shadertoy 风格 GLSL），聊天里就出现一块**持续的活画面**而不是截图。附一个工具 shader_last_compile_result，让 AI 能读回 GLSL 编译器报错原文并自己改到编译通过。渲染页面是编译期内联的自包含 HTML —— 运行时不碰网络、不碰文件系统、不碰资源拦截。",
+    "en": "Render shaders live inside the chat: when the AI writes <shader>…</shader> (Shadertoy-style GLSL) in a reply, it appears as a continuously animating block instead of a screenshot. Ships one tool, shader_last_compile_result, so the AI can read back the raw GLSL compiler errors and fix the code until it compiles. The render page is a self-contained HTML string inlined at build time — no network, no filesystem and no resource interception at runtime."
   },
   "enabled_by_default": false,
   "subpackages": [
@@ -21,23 +19,7 @@
       "entry": "dist/packages/shader-compile.js"
     }
   ],
-  "resources": [
-    {
-      "key": "runner_html",
-      "path": "resources/webview/runner.html",
-      "mime": "text/html"
-    },
-    {
-      "key": "runner_js",
-      "path": "resources/webview/runner.js",
-      "mime": "application/javascript"
-    },
-    {
-      "key": "probe_html",
-      "path": "resources/webview/probe.html",
-      "mime": "text/html"
-    }
-  ],
+  "resources": [],
   "workflow_templates": [],
   "workspace_templates": []
 }

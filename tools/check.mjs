@@ -34,8 +34,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const DECK_SRC = join(ROOT, "src/deck/shader-deck.js");
-const DECK_SHIPPED = join(ROOT, "resources/webview/runner.js");
+// deck 与 runner.html 现在都在编译期内联成一个自包含 HTML 字符串
+//（见 tools/embed-runner.mjs），所以不再需要往 resources/ 同步一份 runner.js。
 
 /**
  * 套件列表**自动发现**，不手写。
@@ -112,17 +112,23 @@ function compile() {
   if (out.trim()) {
     console.log(out.trim());
   }
-  console.log("✓ 1/5 tsc 通过");
+  console.log("✓ 2/5 tsc 通过");
 }
 
-// ---------------------------------------------------------------- 2. deck 同步
+// ---------------------------------------------------------------- 1. 自包含 HTML
 
-function syncDeck() {
-  if (!existsSync(DECK_SRC)) {
-    die(2, `找不到 ${DECK_SRC}`);
+/**
+ * 必须在 tsc 之前：它生成的是 src/deck/embedded.ts，编译产物要包含这份字符串。
+ * 真机实测过一次失败（虚拟域资源拦截没生效，WebView 去真网络找 shaderfeed.local），
+ * 内联就是那次的修法 —— 运行时不碰网络、不碰文件系统、不碰拦截。
+ */
+function embedRunner() {
+  try {
+    run(process.execPath, [join(ROOT, "tools/embed-runner.mjs")]);
+  } catch (err) {
+    die(1, `生成自包含 HTML 失败：${err.stderr || err.message}`);
   }
-  copyFileSync(DECK_SRC, DECK_SHIPPED);
-  console.log("✓ 2/5 deck 已同步 → resources/webview/runner.js");
+  console.log("✓ 1/5 自包含 HTML 已就绪（deck 已内联）");
 }
 
 // ---------------------------------------------------------------- 3. 测试套件
@@ -242,8 +248,8 @@ function verifyPackage(pkgPath) {
 // ---------------------------------------------------------------- main
 
 console.log("── 验证门禁 ──");
+embedRunner();
 compile();
-syncDeck();
 const assertions = runSuites();
 const pkgPath = build();
 verifyPackage(pkgPath);

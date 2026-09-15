@@ -56,16 +56,19 @@
   </head>
   <body>
     <!--
-      这个页面**不含任何内联脚本**，只负责提供 DOM。
-      真正的 deck 通过下面这行从同一个虚拟域相对加载。
+      这个页面**不含任何外链**，只负责提供 DOM。
+      deck 的源码在编译期被 tools/embed-runner.mjs 内联到下面那个 script 标签里，
+      整页随 ToolPkg 一起走，所以运行时不碰网络、不碰文件系统、不碰资源拦截。
 
-      为什么不能用 <script src="../resources/...">：宿主是把 runner.html 与 runner.js
-      以**固定文件名**释放到同一个临时目录（见 src/ui/feed/index.ui.ts 的 PageSpec.fileName），
-      再用虚拟域 + 资源拦截服务的，所以两者在服务端是同级的。相对名是唯一稳的写法。
+      为什么不用外链（真机实测逼出来的）：
+        原先写成 <script src="runner.js"> + 虚拟域资源拦截，真机上 WebView 没走拦截，
+        去真网络找 shaderfeed.local，报 net::ERR_CONNECTION_CLOSED，整条链路全断。
+
+      内联的唯一坑是 deck 源码里不能出现 script 结束标签的字面文本（会把标签提前闭合），
+      tools/embed-runner.mjs 会检查这一点，所以这里也不写出那个字面文本。
 
       脚本必须放在 body 结束标签之前：deck 的 IIFE 末尾会立刻回调 ShaderHost.ready()，
       而宿主收到 ready() 后马上就会发起 __runnerLoad，那时 #gl 必须已经在文档里。
-      （注意：本注释刻意不写出那个结束标签的字面文本，否则按字符串注入工具的脚本会被插进注释里）
     -->
     <canvas id="gl"></canvas>
     <pre id="status"></pre>

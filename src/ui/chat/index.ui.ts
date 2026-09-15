@@ -1,31 +1,37 @@
 /**
- * 聊天内实时渲染 shader（需求 3）。
+ * 聊天内实时渲染 shader。
  *
- * 由 xml_render 钩子触发：AI 在回复里写出 `<shader>…</shader>`，钩子把代码通过
- * `state` 下发到这里，这里用 WebView + 同一个 runner/deck 渲染成**活的画面**，
- * 不是截图 —— 它会一直动。
+ * 由 xml_render 钩子触发：AI 在回复里写出 `<shader>…</shader>`，钩子把代码通过 `state`
+ * 下发到这里，这里用 WebView 渲染成**活的画面**（不是截图，它会一直动）。
  *
- * 与侧边栏那套共用 src/ui/shared/runner-resources.ts，所以虚拟域拦截只有一份实现。
+ * ⚠️ 这里只用**自包含 HTML**：deck 在编译期内联进 HTML 字符串（见 tools/embed-runner.mjs）。
+ *
+ * 为什么不再走「虚拟域 + 资源拦截 + readResource 落盘路径」：
+ *   真机实测那条路根本不工作 ——
+ *       net::ERR_CONNECTION_CLOSED  https://shaderfeed.local/runner.html
+ *   即拦截没生效，WebView 跑到**真网络**上找那个域名，于是整条链路（含 JS bridge 握手）
+ *   一起断掉，界面上只剩一句「网页无法打开」。
+ *   自包含 HTML 把这一整类失败模式移除：没有域名、没有网络、没有文件系统、没有拦截。
  */
 
-import {
-  HOST_INTERFACE_NAME,
-  RUNNER_PAGE,
-  VIRTUAL_HOST,
-  makeResourceHandler,
-  releaseRunnerResources,
-  resolvePathname,
-  type RunnerResourcePaths,
-} from "../shared/runner-resources.js";
+import { SELF_CONTAINED_HTML } from "../../deck/embedded.js";
 import {
   toCompileIpcPayload,
   type CompileIpcWrite,
 } from "../../plugin/compile-ipc.js";
 import {
+  HOST_INTERFACE_NAME,
   IPC_COMPILE_WRITE,
   STATE_KEY_SHADER_CODE,
   STATE_KEY_SHADER_TITLE,
 } from "../../shared/chat-shader-state.js";
+
+/**
+ * 页面的基准地址。这里没有任何相对资源，给一个真实 origin 只是为了不让页面处在
+ * opaque origin（某些 WebView 对 opaque origin 的 WebGL/localStorage 更严格）。
+ * 它**不会**被真的访问 —— 页面内容全部内联。
+ */
+const PAGE_BASE_URL = "https://shaderfeed.local/";
 
 /** 命名避开组件内的 errorText 状态，否则会被它遮蔽（同名遮蔽后就不是函数了）。 */
 function toErrorText(error: unknown): string {
@@ -58,6 +64,29 @@ function summarizeReport(text: string): string {
   }
 }
 
+/** 从宿主给的 console 事件里尽量取出一句可读的话（字段名不保证，所以只认字符串）。 */
+function summarizeConsole(event: unknown): string {
+  if (!event || typeof event !== "object") {
+    return "";
+  }
+  const e = event as Record<string, unknown>;
+  const level = typeof e.level === "string" ? e.level.toLowerCase() : "";
+  const message =
+    typeof e.message === "string"
+      ? e.message
+      : typeof e.text === "string"
+        ? e.text
+        : "";
+  if (!message) {
+    return "";
+  }
+  // 只把 error/warn 抬到状态行；普通 log 会被每秒一次的 stats 刷掉，没意义。
+  if (level && level !== "error" && level !== "warn") {
+    return "";
+  }
+  return (level ? level + ": " : "") + message.slice(0, 200);
+}
+
 export default function Screen(ctx: ComposeDslContext): ComposeNode {
   const { UI } = ctx;
   const colors = ctx.MaterialTheme.colorScheme;
@@ -68,17 +97,11 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
 
   const [statusText, setStatusText] = ctx.useState(
     "chatStatus",
-    "正在装载渲染器…",
+    "渲染器就绪，等待页面握手…",
   );
   const [errorText, setErrorText] = ctx.useState("chatError", "");
   const [ready, setReady] = ctx.useState("chatReady", false);
 
-  // 可变引用：拦截处理器在请求到达时才读这些路径。
-  const [paths] = ctx.useState<RunnerResourcePaths>("chatPaths", {
-    runner: "",
-    script: "",
-    probe: "",
-  });
   // lastCodeLength：下发时的代码长度。**必须放 ref，不能读 state** ——
   // report 处理器是在 boot() 里注册一次的，闭包会捕获注册那一刻的 shaderCode（空串），
   // 于是长度永远是 0，AI 就没法判断「读到的是不是我刚写那段」。
@@ -130,6 +153,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     controller.removeJavascriptInterface(HOST_INTERFACE_NAME);
     const host: ComposeWebViewJavascriptInterface = {
       ready: () => {
+        // 页面脚本跑起来了 —— 这一句能被调用，就说明自包含 HTML 那条路是通的。
         sendShader();
         return true;
       },
@@ -148,33 +172,21 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
         }
         return true;
       },
-      // 聊天里不需要换片，但页面挂了手势监听；给个空实现免得它报"宿主不可用"。
+      // 聊天里不需要换片，但页面挂了手势监听；给个空实现免得它报「宿主不可用」。
       swipe: () => true,
     };
     controller.addJavascriptInterface(HOST_INTERFACE_NAME, host);
   }
 
-  async function boot(): Promise<void> {
+  function boot(): void {
     if (flags.booted) {
       return;
     }
     flags.booted = true;
-    try {
-      const released = await releaseRunnerResources();
-      if (!released.runner || !released.script) {
-        setErrorText("runner 资源没有完整装载。");
-        setStatusText("资源装载失败");
-        return;
-      }
-      paths.runner = released.runner;
-      paths.script = released.script;
-      paths.probe = released.probe;
-      registerHost();
-      setReady(true);
-      setStatusText("渲染器就绪，等待页面握手…");
-    } catch (error) {
-      setErrorText("资源装载异常: " + toErrorText(error));
-    }
+    // 再没有异步装载：HTML 是编译期内联进来的字符串，直接把 bridge 挂上就行。
+    // 顺序很重要 —— WebView 只有 ready 之后才渲染，所以 bridge 一定先于页面存在。
+    registerHost();
+    setReady(true);
   }
 
   const header = UI.Text({
@@ -201,7 +213,9 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     ? UI.WebView({
         key: "chat_shader_webview",
         controller,
-        url: VIRTUAL_HOST + RUNNER_PAGE.path,
+        // 关键：直接给 HTML，不走 url。没有域名、没有网络请求、没有资源拦截。
+        html: SELF_CONTAINED_HTML,
+        baseUrl: PAGE_BASE_URL,
         // 聊天里需要一个明确的框高（需求原话是「显示在一个框里」）。
         height: 260,
         fillMaxWidth: true,
@@ -210,23 +224,22 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
         supportZoom: false,
         useWideViewPort: true,
         loadWithOverviewMode: true,
-        onShouldOverrideUrlLoading: (
-          request: ComposeWebViewNavigationRequest,
-        ) =>
-          resolvePathname(request.url) === null
-            ? { action: "external", url: request.url }
-            : { action: "allow" },
-        onInterceptRequest: makeResourceHandler(paths),
         onReceivedError: (event: unknown) => {
           setErrorText("页面错误: " + JSON.stringify(event).slice(0, 200));
+        },
+        onConsoleMessage: (event: unknown) => {
+          const line = summarizeConsole(event);
+          if (line) {
+            setErrorText("页面 " + line);
+          }
         },
       })
     : UI.Box(
         { height: 120, fillMaxWidth: true, contentAlignment: "center" },
         UI.Text({
-          text: errorText || "正在装载渲染器…",
+          text: "正在装载渲染器…",
           style: "bodySmall",
-          color: errorText ? colors.error : colors.onSurfaceVariant,
+          color: colors.onSurfaceVariant,
         }),
       );
 

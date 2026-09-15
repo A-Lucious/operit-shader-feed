@@ -7,7 +7,7 @@
  * 写错了不会报任何错，只是聊天里永远什么都不显示，而且离线环境完全查不出来。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.IPC_COMPILE_READ = exports.IPC_COMPILE_WRITE = exports.STATE_KEY_SHADER_TITLE = exports.STATE_KEY_SHADER_CODE = void 0;
+exports.HOST_INTERFACE_NAME = exports.IPC_COMPILE_READ = exports.IPC_COMPILE_WRITE = exports.STATE_KEY_SHADER_TITLE = exports.STATE_KEY_SHADER_CODE = void 0;
 exports.STATE_KEY_SHADER_CODE = "shaderCode";
 exports.STATE_KEY_SHADER_TITLE = "shaderTitle";
 /**
@@ -22,3 +22,12 @@ exports.STATE_KEY_SHADER_TITLE = "shaderTitle";
  */
 exports.IPC_COMPILE_WRITE = "shader_feed.compile_result.write";
 exports.IPC_COMPILE_READ = "shader_feed.compile_result.read";
+/**
+ * 页面里那个 JS bridge 的名字（`window.ShaderHost`）。
+ *
+ * 必须与 deck（src/deck/shader-deck.js）里读的名字一字不差 —— deck 是纯 JS，
+ * 没法 import 这个常量，所以两边只能靠约定。写错的后果：deck 永远不调 ready()，
+ * 界面一直卡在「等待页面握手」，而且**只能真机发现**。
+ * 生成自包含 HTML 时有一道断言拉着它们（见 tests/runner-html.test.mjs）。
+ */
+exports.HOST_INTERFACE_NAME = "ShaderHost";

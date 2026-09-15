@@ -7,7 +7,7 @@
  *   页面 B「宿主握手」：模拟宿主行为（注入 ShaderHost → 注入 deck → __runnerLoad），
  *                        证明 ToolPkg 侧那套调用约定真的能跑通
  *
- * 同时把 src/deck/shader-deck.js 同步成 resources/webview/runner.js —— 测的就是要发布的那个文件。
+ * 同时把 src/deck/shader-deck.js 拷进 .tmp/ 供页面 A 用 —— 两个页面跑的都是源文件本身。
  *
  * 用法： node tests/run.mjs
  * 这是开发期验证，不是运行期依赖 —— 运行期 100% 在安卓。
@@ -21,6 +21,7 @@ import {
   readdirSync,
   existsSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,7 +29,14 @@ import { homedir } from "node:os";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DECK_SRC = join(ROOT, "src/deck/shader-deck.js");
-const DECK_SHIPPED = join(ROOT, "resources/webview/runner.js");
+/** 编译后的自包含 HTML（deck 在编译期内联）—— 页面 B 跑的就是它。 */
+const EMBEDDED_JS = join(ROOT, "dist/deck/embedded.js");
+if (!existsSync(EMBEDDED_JS)) {
+  console.error("✗ 找不到 dist/deck/embedded.js，先跑 npx tsc");
+  process.exit(2);
+}
+const require = createRequire(import.meta.url);
+const { SELF_CONTAINED_HTML } = require(EMBEDDED_JS);
 const TMP = join(ROOT, ".tmp");
 const CANVAS = 64;
 
@@ -103,7 +111,7 @@ function buildDeckPage() {
 <canvas id="gl" width="${CANVAS}" height="${CANVAS}"></canvas>
 <pre id="status"></pre>
 <pre id="out">pending</pre>
-<script src="../resources/webview/runner.js"></script>
+<script src="runner.js"></script>
 <script>
 (function () {
   var CHECKER = ${JSON.stringify(CHECKER_URI)};
@@ -208,15 +216,25 @@ function buildDeckPage() {
 }
 
 /**
- * 页面 B：把**真实的 runner.html** 拿来跑，而不是手写一份近似 DOM。
- * 这样连「runner.html 用相对名引用 runner.js」这条真机路径也被覆盖（两者被放进同一个目录）。
+ * 页面 B：跑**真正要发布的那一页** —— dist/deck/embedded.js 里的自包含 HTML。
+ *
+ * 这里踩过一次教训：旧版把 resources/webview/runner.html 与相对引用的 runner.js 拷进
+ * 同一个目录、用 file:// 跑，测试全绿；而真机走的是「虚拟域 + 资源拦截」那条路，
+ * 实测直接 net::ERR_CONNECTION_CLOSED —— 测试覆盖的是另一条路，于是给了虚假信心。
+ * 现在两者合成一个字符串，测试与发布产物是**同一份内容**。
+ *
  * 顺序与 ToolPkg 外壳一致：先注入 ShaderHost，再让 deck 脚本自己加载，最后 __runnerLoad。
  */
 function buildRunnerTestPage() {
-  const real = readFileSync(
-    join(ROOT, "resources/webview/runner.html"),
-    "utf8",
-  );
+  const real = SELF_CONTAINED_HTML;
+
+  // 自包含是这个页面的**核心性质**：任何外链都意味着又一次「真机去网络上找」。
+  const withoutComments = real.replace(/<!--[\s\S]*?-->/g, "");
+  const external =
+    withoutComments.match(/(src|href)\s*=\s*["'](?!data:)[^"']+["']/gi) || [];
+  if (external.length > 0) {
+    throw new Error(`自包含 HTML 里仍有外链：${external.join(", ")}`);
+  }
 
   // 宿主：ComposeWebViewController.addJavascriptInterface("ShaderHost", {...})
   // 必须在 deck 脚本之前注入，否则 deck 的 ready() 回调会落空。
@@ -242,10 +260,10 @@ function buildRunnerTestPage() {
     document.title = failed ? 'FAIL' : 'PASS';
   }
 
-  // runner.html 必须真的把 deck 加载起来，否则真机上就是一片空白
-  rec('runner.html 相对引用的 runner.js 已加载', typeof window.ShaderDeck === 'object' && !!window.ShaderDeck.VERSION, String(window.ShaderDeck && window.ShaderDeck.VERSION));
-  rec('runner.html 提供了 #gl', !!document.getElementById('gl'), '');
-  rec('runner.html 提供了 #status', !!document.getElementById('status'), '');
+  // 页面里的 deck 必须是**内联**跑起来的，否则真机上就是一片空白
+  rec('自包含 HTML 里的 deck 已执行（内联，无外链）', typeof window.ShaderDeck === 'object' && !!window.ShaderDeck.VERSION, String(window.ShaderDeck && window.ShaderDeck.VERSION));
+  rec('页面提供了 #gl', !!document.getElementById('gl'), '');
+  rec('页面提供了 #status', !!document.getElementById('status'), '');
   rec('deck 加载后自动回调 ShaderHost.ready()', window.__host.ready === 1, 'ready=' + window.__host.ready);
   rec('__runnerLoad 已暴露', typeof window.__runnerLoad === 'function', typeof window.__runnerLoad);
 
@@ -360,7 +378,7 @@ function buildRunnerTestPage() {
   const headEnd = real.indexOf("</head>");
   const bodyEnd = real.lastIndexOf("</body>");
   if (headEnd < 0 || bodyEnd < 0) {
-    throw new Error("runner.html 结构不符预期：找不到 head 或 body 的结束位置");
+    throw new Error("自包含 HTML 结构不符预期：找不到 head 或 body 的结束位置");
   }
   return (
     real.slice(0, headEnd) +
@@ -417,7 +435,7 @@ function buildSoakPage() {
 <html><body>
 <canvas id="gl" style="width:200px;height:150px"></canvas>
 <pre id="out">pending</pre>
-<script src="../resources/webview/runner.js"></script>
+<script src="runner.js"></script>
 <script>
 (function () {
   var FIXTURE = ${JSON.stringify(FIXTURES[0].json)};
@@ -522,21 +540,21 @@ function buildSoakPage() {
 
 function main() {
   mkdirSync(TMP, { recursive: true });
-  copyFileSync(DECK_SRC, DECK_SHIPPED);
+  copyFileSync(DECK_SRC, join(TMP, "runner.js"));
   console.log(
-    "→ 已同步 deck: src/deck/shader-deck.js → resources/webview/runner.js",
+    "→ 已拷 deck 到 .tmp/runner.js",
   );
 
   const chrome = findChrome();
 
-  // 页面 B 要跑**真实的** runner.html，所以得把它和 runner.js 放进同一个目录，
-  // 好让 runner.html 里的相对名 src="runner.js" 解析得到 —— 这正是真机上被服务的布局。
-  copyFileSync(DECK_SHIPPED, join(TMP, "runner.js"));
+  // 页面 B 跑的是 dist/deck/embedded.js 里的自包含 HTML（deck 已内联），
+  // 不需要任何配套文件 —— 这正是它与真机一致的地方。
+  copyFileSync(join(ROOT, "src/deck/shader-deck.js"), join(TMP, "runner.js"));
   const pages = [
     ["页面 A · deck 装配与渲染", "harness.html", buildDeckPage(), 10000],
     [
-      "页面 B · 真实 runner.html + 宿主握手",
-      "runner.html",
+      "页面 B · 自包含 HTML + 宿主握手",
+      "runner-pageB.html",
       buildRunnerTestPage(),
       12000,
     ],

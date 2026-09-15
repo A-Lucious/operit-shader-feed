@@ -25,7 +25,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_DIR = join(ROOT, "release");
 
 // 显式白名单，不用排除法：宁可漏带也不要悄悄把不该进包的东西塞进去。
-const INCLUDE = ["manifest.json", "dist", "resources"];
+// resources/ 不再打包 —— runner.html 现在只是生成自包含 HTML 的源文件
+//（见 tools/embed-runner.mjs），运行时不需要它。
+const INCLUDE = ["manifest.json", "dist"];
 
 /** 递归收集，base 保留顶层目录名（丢掉的后果是 dist/main.js 变成 main.js，包结构全错）。 */
 function walk(absDir, base) {

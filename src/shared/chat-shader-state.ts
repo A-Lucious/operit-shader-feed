@@ -21,3 +21,13 @@ export const STATE_KEY_SHADER_TITLE = "shaderTitle";
  */
 export const IPC_COMPILE_WRITE = "shader_feed.compile_result.write";
 export const IPC_COMPILE_READ = "shader_feed.compile_result.read";
+
+/**
+ * 页面里那个 JS bridge 的名字（`window.ShaderHost`）。
+ *
+ * 必须与 deck（src/deck/shader-deck.js）里读的名字一字不差 —— deck 是纯 JS，
+ * 没法 import 这个常量，所以两边只能靠约定。写错的后果：deck 永远不调 ready()，
+ * 界面一直卡在「等待页面握手」，而且**只能真机发现**。
+ * 生成自包含 HTML 时有一道断言拉着它们（见 tests/runner-html.test.mjs）。
+ */
+export const HOST_INTERFACE_NAME = "ShaderHost";

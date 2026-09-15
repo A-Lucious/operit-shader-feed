@@ -213,6 +213,36 @@ type ComposeNodeFactory<TProps = Record<string, unknown>> = (
 ) => ComposeNode;
 
 /**
+ * WebView 的 props。**字段名照官方 `examples/types/compose-dsl.d.ts` 的 WebViewProps**，
+ * 而不是用默认的宽松 Record —— 具名 props 的代价是几行声明，收益是**写错 props 名会直接编译不过**。
+ *
+ * 这不是洁癖：真机实测过一次 `Tools.Files.read(path, env)` 因声明太宽而一路编过，
+ * 到了手机上才发现环境参数被静默丢弃。属性名同理 —— 写错就是「页面白屏」而没有任何报错。
+ */
+interface ComposeWebViewProps {
+ key?: string;
+ controller?: ComposeWebViewController;
+ url?: string;
+ /** 直接给 HTML 字符串（本插件就是走这条：自包含 HTML，不碰网络/文件系统）。 */
+ html?: string;
+ baseUrl?: string;
+ mimeType?: string;
+ encoding?: string;
+ javaScriptEnabled?: boolean;
+ domStorageEnabled?: boolean;
+ supportZoom?: boolean;
+ useWideViewPort?: boolean;
+ loadWithOverviewMode?: boolean;
+ nestedScrollInterop?: boolean;
+ height?: number;
+ fillMaxWidth?: boolean;
+ fillMaxSize?: boolean;
+ onPageFinished?: (event: unknown) => void | Promise<void>;
+ onReceivedError?: (event: unknown) => void | Promise<void>;
+ onConsoleMessage?: (event: unknown) => void | Promise<void>;
+}
+
+/**
  * 各组件的 props 类型在两个官方示例里是逐字段精确声明的。
  * 这里故意放宽成 Record<string, unknown>：P0 只依赖少数几个字段，
  * 复刻全部 props 类型既没必要也会引入维护负担。
@@ -228,7 +258,7 @@ interface ComposeUiFactories {
  Card: ComposeNodeFactory;
  Surface: ComposeNodeFactory;
  Icon: ComposeNodeFactory;
- WebView: ComposeNodeFactory;
+ WebView: ComposeNodeFactory<ComposeWebViewProps>;
 }
 
 interface ComposeColorToken {
