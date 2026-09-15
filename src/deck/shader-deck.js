@@ -331,6 +331,11 @@
       _frameRate: 0,
       _lastReportTs: 0,
       _paused: false,
+      /** 暂停后需要重对齐时钟基准；由 renderFrame 消费一次。 */
+      _resyncAfterPause: false,
+      /** 限帧用：最小帧间隔（毫秒）与上一拍的时间戳。 */
+      _minInterval: 0,
+      _lastTickTs: 0,
     };
 
     // --- 资源 ---------------------------------------------------------------
@@ -656,6 +661,14 @@
         deck._t0 = now;
         deck._lastTs = now;
       }
+      // 暂停后第一次回到循环：把时钟基准往后推，跳过暂停时长，
+      // 这样 iTime 从暂停处继续而不是跳回起点（D4 要求的「回来继续」）。
+      // 只用循环自己的时间戳（同一个时钟）—— 混用 wall clock 会让
+      // 「用受控时间戳驱动」的测试测不出真行为。
+      if (deck._resyncAfterPause) {
+        deck._resyncAfterPause = false;
+        deck._t0 += now - deck._lastTs;
+      }
 
       var delta = (now - deck._lastTs) / 1000;
       if (delta <= 0 || delta > 1) delta = 1 / 60;
@@ -699,6 +712,23 @@
       return { width: w, height: h, data: buf };
     };
 
+    /**
+     * 渲染循环的「一拍」：限帧 + 暂停检查 + 画一帧。
+     *
+     * rAF 回调与测试调**同一个函数**，保证被验证的就是真跑的那份逻辑，
+     * 而不是一份「看起来一样」的复制品。这也让限帧/暂停/停止可以离线驱动：
+     * 无头 Chromium 的虚拟时间下 rAF 基本不触发（实测只出了 2 帧），靠它才测得了。
+     */
+    deck.stepFrame = (ts) => {
+      if (!deck._running) return false;
+      if (deck._paused) return false;
+      const minInterval = deck._minInterval || 0;
+      if (minInterval && ts - deck._lastTickTs < minInterval - 0.5) return false;
+      deck._lastTickTs = ts;
+      deck.renderFrame(ts);
+      return true;
+    };
+
     deck.start = (startOpts) => {
       var so = startOpts || {};
       if (typeof so.timeOffset === "number") deck._timeOffset = so.timeOffset;
@@ -708,18 +738,15 @@
       deck._paused = false;
       deck._t0 = 0;
       deck._frame = 0;
+      deck._lastTickTs = 0;
+      deck._resyncAfterPause = false;
+      deck._minInterval = deck.targetFps > 0 ? 1000 / deck.targetFps : 0;
       deck.resize(canvas.clientWidth, canvas.clientHeight);
-
-      var minInterval = deck.targetFps > 0 ? 1000 / deck.targetFps : 0;
-      var lastDraw = 0;
 
       var tick = (ts) => {
         if (!deck._running) return;
         deck._rafId = requestAnimationFrame(tick);
-        if (deck._paused) return;
-        if (minInterval && ts - lastDraw < minInterval - 0.5) return;
-        lastDraw = ts;
-        deck.renderFrame(ts);
+        deck.stepFrame(ts);
       };
       deck._rafId = requestAnimationFrame(tick);
     };
@@ -736,8 +763,11 @@
       deck._paused = true;
     };
     deck.resume = () => {
-      deck._t0 = 0;
+      if (!deck._paused) return;
       deck._paused = false;
+      // 真正的时钟补偿在下一帧的 renderFrame 里做 —— 那里才有循环自己的时间戳。
+      // 这里只打个标记，避免与 wall clock 混用（那正是这一版修掉的问题）。
+      deck._resyncAfterPause = true;
     };
 
     deck.stats = () => ({

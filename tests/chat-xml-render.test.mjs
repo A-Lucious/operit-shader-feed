@@ -12,16 +12,16 @@
  * 用法： node tests/chat-xml-render.test.mjs   （需先跑 npx tsc）
  */
 
-import { createRequire } from 'node:module';
-import { existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const HOOK_JS = join(ROOT, 'dist/plugin/chat-xml-render.js');
-const KEYS_JS = join(ROOT, 'dist/shared/chat-shader-state.js');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const HOOK_JS = join(ROOT, "dist/plugin/chat-xml-render.js");
+const KEYS_JS = join(ROOT, "dist/shared/chat-shader-state.js");
 if (!existsSync(HOOK_JS) || !existsSync(KEYS_JS)) {
-  console.error('✗ 找不到编译产物，先跑 npx tsc');
+  console.error("✗ 找不到编译产物，先跑 npx tsc");
   process.exit(2);
 }
 const require = createRequire(import.meta.url);
@@ -44,82 +44,138 @@ function ok(name, condition, detail) {
     console.log(`  ✓ ${name}`);
   } else {
     failures.push(name);
-    console.log(`  ✗ ${name}${detail ? '  → ' + detail : ''}`);
+    console.log(`  ✗ ${name}${detail ? "  → " + detail : ""}`);
   }
 }
-const eq = (name, a, b) => ok(name, a === b, `期望 ${JSON.stringify(b)}，实际 ${JSON.stringify(a)}`);
+const eq = (name, a, b) =>
+  ok(name, a === b, `期望 ${JSON.stringify(b)}，实际 ${JSON.stringify(a)}`);
 
 /** 一段含 `<` 与 `&` 的真实风格 GLSL（这正是会破坏 XML 的字符）。 */
 const GLSL_WITH_ANGLES = [
-  'void mainImage(out vec4 fragColor, in vec2 fragCoord) {',
-  '  vec2 uv = fragCoord / iResolution.xy;',
-  '  vec3 col = uv.x < 0.5 && uv.y > 0.2 ? vec3(1.0) : vec3(0.0);',
-  '  fragColor = vec4(col, 1.0);',
-  '}',
-].join('\n');
+  "void mainImage(out vec4 fragColor, in vec2 fragCoord) {",
+  "  vec2 uv = fragCoord / iResolution.xy;",
+  "  vec3 col = uv.x < 0.5 && uv.y > 0.2 ? vec3(1.0) : vec3(0.0);",
+  "  fragColor = vec4(col, 1.0);",
+  "}",
+].join("\n");
 
 async function main() {
-  console.log('── 实体解码：顺序是最容易错的地方 ──');
-    eq('&lt; → <', decodeXmlEntities('a &lt; b'), 'a < b');
-    eq('&gt; → >', decodeXmlEntities('a &gt; b'), 'a > b');
-    eq('&amp; → &', decodeXmlEntities('a &amp; b'), 'a & b');
-    // 关键：若先解 &amp; 再解 &lt;，这里会得到 '<'，代码就被改坏了
-    eq('&amp;lt; → &lt;（不能二次解码成 <）', decodeXmlEntities('&amp;lt;'), '&lt;');
-    eq('混合', decodeXmlEntities('a &lt; b &amp;&amp; c &gt; d'), 'a < b && c > d');
-    eq('没有实体时原样返回', decodeXmlEntities('plain text'), 'plain text');
-    eq('&quot; 与 &#39;', decodeXmlEntities('&quot;x&quot; &#39;y&#39;'), '"x" \'y\'');
+  console.log("── 实体解码：顺序是最容易错的地方 ──");
+  eq("&lt; → <", decodeXmlEntities("a &lt; b"), "a < b");
+  eq("&gt; → >", decodeXmlEntities("a &gt; b"), "a > b");
+  eq("&amp; → &", decodeXmlEntities("a &amp; b"), "a & b");
+  // 关键：若先解 &amp; 再解 &lt;，这里会得到 '<'，代码就被改坏了
+  eq(
+    "&amp;lt; → &lt;（不能二次解码成 <）",
+    decodeXmlEntities("&amp;lt;"),
+    "&lt;",
+  );
+  eq(
+    "混合",
+    decodeXmlEntities("a &lt; b &amp;&amp; c &gt; d"),
+    "a < b && c > d",
+  );
+  eq("没有实体时原样返回", decodeXmlEntities("plain text"), "plain text");
+  eq(
+    "&quot; 与 &#39;",
+    decodeXmlEntities("&quot;x&quot; &#39;y&#39;"),
+    "\"x\" 'y'",
+  );
 
-  console.log('── CDATA 剥离 ──');
-    eq('包着 CDATA → 取内层', stripCdata('<![CDATA[hello]]>'), 'hello');
-    eq('未包 CDATA → 原样', stripCdata('hello'), 'hello');
-    eq('前后空白被容忍', stripCdata('  <![CDATA[ hello ]]>  '), ' hello ');
-    eq('只包一半不当成 CDATA', stripCdata('<![CDATA[hello'), '<![CDATA[hello');
+  console.log("── CDATA 剥离 ──");
+  eq("包着 CDATA → 取内层", stripCdata("<![CDATA[hello]]>"), "hello");
+  eq("未包 CDATA → 原样", stripCdata("hello"), "hello");
+  eq("前后空白被容忍", stripCdata("  <![CDATA[ hello ]]>  "), " hello ");
+  eq("只包一半不当成 CDATA", stripCdata("<![CDATA[hello"), "<![CDATA[hello");
 
-  console.log('── 标签解析：属性、实体、CDATA ──');
+  console.log("── 标签解析：属性、实体、CDATA ──");
   {
-    const plain = parseShaderTag('void mainImage(out vec4 c, in vec2 f){ c=vec4(0.); }');
-    eq('无标题时 title 为空', plain.title, '');
-    ok('无标题时代码完整', plain.code.includes('mainImage'));
+    const plain = parseShaderTag(
+      "void mainImage(out vec4 c, in vec2 f){ c=vec4(0.); }",
+    );
+    eq("无标题时 title 为空", plain.title, "");
+    ok("无标题时代码完整", plain.code.includes("mainImage"));
 
-    const titled = parseShaderTag(' title="旋转方块" void mainImage(out vec4 c, in vec2 f){ c=vec4(0.); }');
-    eq('抽出 title', titled.title, '旋转方块');
-    ok('title 属性不会混进代码', !titled.code.includes('title='), titled.code.slice(0, 40));
+    const titled = parseShaderTag(
+      ' title="旋转方块" void mainImage(out vec4 c, in vec2 f){ c=vec4(0.); }',
+    );
+    eq("抽出 title", titled.title, "旋转方块");
+    ok(
+      "title 属性不会混进代码",
+      !titled.code.includes("title="),
+      titled.code.slice(0, 40),
+    );
 
-    const escaped = parseShaderTag('void mainImage(out vec4 c, in vec2 f){ if (c.x &lt; 0.5) c = vec4(1.); }');
-    ok('实体被解码回真实尖括号', escaped.code.includes('< 0.5'), escaped.code);
+    const escaped = parseShaderTag(
+      "void mainImage(out vec4 c, in vec2 f){ if (c.x &lt; 0.5) c = vec4(1.); }",
+    );
+    ok("实体被解码回真实尖括号", escaped.code.includes("< 0.5"), escaped.code);
 
-    const cdata = parseShaderTag('<![CDATA[' + GLSL_WITH_ANGLES + ']]>');
-    ok('CDATA 内的代码原样取出', cdata.code.includes('uv.x < 0.5 && uv.y > 0.2'), cdata.code);
-    ok('CDATA 外壳没留下', !cdata.code.includes('CDATA'));
+    const cdata = parseShaderTag("<![CDATA[" + GLSL_WITH_ANGLES + "]]>");
+    ok(
+      "CDATA 内的代码原样取出",
+      cdata.code.includes("uv.x < 0.5 && uv.y > 0.2"),
+      cdata.code,
+    );
+    ok("CDATA 外壳没留下", !cdata.code.includes("CDATA"));
   }
 
-  console.log('── 结构预检查（纯字符串，不需要 WebGL）──');
-    ok('空代码 → 报错并提示正确写法', String(precheckShaderCode('')).includes(SHADER_XML_TAG));
-    ok('缺 mainImage → 报错', String(precheckShaderCode('float x(){return 1.0;}')).includes('mainImage'));
-    ok('只写 main() → 也报缺 mainImage', String(precheckShaderCode('void main(){ }')).includes('mainImage'));
-    ok('错误的 #version → 报错', String(precheckShaderCode('#version 100\n' + GLSL_WITH_ANGLES)).includes('300 es'));
+  console.log("── 结构预检查（纯字符串，不需要 WebGL）──");
+  ok(
+    "空代码 → 报错并提示正确写法",
+    String(precheckShaderCode("")).includes(SHADER_XML_TAG),
+  );
+  ok(
+    "缺 mainImage → 报错",
+    String(precheckShaderCode("float x(){return 1.0;}")).includes("mainImage"),
+  );
+  ok(
+    "只写 main() → 也报缺 mainImage",
+    String(precheckShaderCode("void main(){ }")).includes("mainImage"),
+  );
+  ok(
+    "错误的 #version → 报错",
+    String(precheckShaderCode("#version 100\n" + GLSL_WITH_ANGLES)).includes(
+      "300 es",
+    ),
+  );
 
-    eq('GLSL1 合法 → 通过', precheckShaderCode(GLSL_WITH_ANGLES), null);
-    eq('#version 300 es 合法 → 通过', precheckShaderCode('#version 300 es\n' + GLSL_WITH_ANGLES), null);
+  eq("GLSL1 合法 → 通过", precheckShaderCode(GLSL_WITH_ANGLES), null);
+  eq(
+    "#version 300 es 合法 → 通过",
+    precheckShaderCode("#version 300 es\n" + GLSL_WITH_ANGLES),
+    null,
+  );
 
-  console.log('── 钩子行为 ──');
+  console.log("── 钩子行为 ──");
   {
-    const wrongTag = onShaderXmlRender({ eventPayload: { tagName: 'not_shader', xmlContent: 'x' } });
-    eq('标签名不匹配 → handled:false', wrongTag.handled, false);
-    ok('不匹配时不产出界面', wrongTag.composeDsl === undefined);
+    const wrongTag = onShaderXmlRender({
+      eventPayload: { tagName: "not_shader", xmlContent: "x" },
+    });
+    eq("标签名不匹配 → handled:false", wrongTag.handled, false);
+    ok("不匹配时不产出界面", wrongTag.composeDsl === undefined);
 
-    const noContent = onShaderXmlRender({ eventPayload: { tagName: SHADER_XML_TAG } });
-    eq('没有 xmlContent → handled:false', noContent.handled, false);
+    const noContent = onShaderXmlRender({
+      eventPayload: { tagName: SHADER_XML_TAG },
+    });
+    eq("没有 xmlContent → handled:false", noContent.handled, false);
   }
   {
     // 坏代码：必须返回**纯文本**，AI 才可能在对话记录里看到并自己修
     const bad = onShaderXmlRender({
-      eventPayload: { tagName: SHADER_XML_TAG, xmlContent: 'float x(){return 1.0;}' },
+      eventPayload: {
+        tagName: SHADER_XML_TAG,
+        xmlContent: "float x(){return 1.0;}",
+      },
     });
-    eq('结构不合法 → handled:true', bad.handled, true);
-    ok('结构不合法 → 返回纯文本（AI 看得到）', typeof bad.text === 'string' && bad.text.length > 0, JSON.stringify(bad).slice(0, 120));
-    ok('结构不合法 → 不产出界面', bad.composeDsl === undefined);
-    ok('错误文本里说明了缺什么', bad.text.includes('mainImage'), bad.text);
+    eq("结构不合法 → handled:true", bad.handled, true);
+    ok(
+      "结构不合法 → 返回纯文本（AI 看得到）",
+      typeof bad.text === "string" && bad.text.length > 0,
+      JSON.stringify(bad).slice(0, 120),
+    );
+    ok("结构不合法 → 不产出界面", bad.composeDsl === undefined);
+    ok("错误文本里说明了缺什么", bad.text.includes("mainImage"), bad.text);
   }
   {
     // 好代码：产出界面，且 state 键名必须与界面读取的一致
@@ -129,28 +185,57 @@ async function main() {
         xmlContent: ' title="测试" ' + GLSL_WITH_ANGLES,
       },
     });
-    eq('合法代码 → handled:true', good.handled, true);
-    ok('合法代码 → 产出界面', !!good.composeDsl);
-    ok('screen 是个函数', typeof (good.composeDsl && good.composeDsl.screen) === 'function');
+    eq("合法代码 → handled:true", good.handled, true);
+    ok("合法代码 → 产出界面", !!good.composeDsl);
+    ok(
+      "screen 是个函数",
+      typeof (good.composeDsl && good.composeDsl.screen) === "function",
+    );
     const state = (good.composeDsl && good.composeDsl.state) || {};
-    eq('state 用的是共享的代码键名', Object.keys(state).includes(STATE_KEY_SHADER_CODE), true);
-    eq('state 用的是共享的标题键名', Object.keys(state).includes(STATE_KEY_SHADER_TITLE), true);
-    eq('state 里的代码是解码后的', state[STATE_KEY_SHADER_CODE].includes('uv.x < 0.5'), true);
-    eq('state 里的标题正确', state[STATE_KEY_SHADER_TITLE], '测试');
+    eq(
+      "state 用的是共享的代码键名",
+      Object.keys(state).includes(STATE_KEY_SHADER_CODE),
+      true,
+    );
+    eq(
+      "state 用的是共享的标题键名",
+      Object.keys(state).includes(STATE_KEY_SHADER_TITLE),
+      true,
+    );
+    eq(
+      "state 里的代码是解码后的",
+      state[STATE_KEY_SHADER_CODE].includes("uv.x < 0.5"),
+      true,
+    );
+    eq("state 里的标题正确", state[STATE_KEY_SHADER_TITLE], "测试");
   }
 
-  console.log('── 注册对象 ──');
-    eq('tag 就是 SHADER_XML_TAG', SHADER_XML_RENDER_REGISTRATION.tag, SHADER_XML_TAG);
-    ok('id 非空且稳定', typeof SHADER_XML_RENDER_REGISTRATION.id === 'string' && SHADER_XML_RENDER_REGISTRATION.id.length > 0);
-    eq('function 就是钩子本体', SHADER_XML_RENDER_REGISTRATION.function, onShaderXmlRender);
-    eq('标签名没被改成别的', SHADER_XML_TAG, 'shader');
+  console.log("── 注册对象 ──");
+  eq(
+    "tag 就是 SHADER_XML_TAG",
+    SHADER_XML_RENDER_REGISTRATION.tag,
+    SHADER_XML_TAG,
+  );
+  ok(
+    "id 非空且稳定",
+    typeof SHADER_XML_RENDER_REGISTRATION.id === "string" &&
+      SHADER_XML_RENDER_REGISTRATION.id.length > 0,
+  );
+  eq(
+    "function 就是钩子本体",
+    SHADER_XML_RENDER_REGISTRATION.function,
+    onShaderXmlRender,
+  );
+  eq("标签名没被改成别的", SHADER_XML_TAG, "shader");
 
   console.log(`\n${pass}/${pass + failures.length} 通过`);
   if (failures.length) {
     console.error(`✗ ${failures.length} 项失败`);
     process.exit(1);
   }
-  console.log('✓ XML 实体/CData/标题剥离、结构预检查、钩子行为、以及与界面的 state 键名耦合 全部锁住');
+  console.log(
+    "✓ XML 实体/CData/标题剥离、结构预检查、钩子行为、以及与界面的 state 键名耦合 全部锁住",
+  );
 }
 
 main();

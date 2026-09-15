@@ -401,6 +401,125 @@ function dumpPage(chrome, pagePath, budgetMs) {
   return JSON.parse(decodeURIComponent(m[1]));
 }
 
+/**
+ * 页面 C：播放回路 soak。
+ *
+ * P0 验收里有一条「跑满 30 秒不掉帧」，而在此之前**播放回路本身**
+ * （限帧、暂停语义、stop 是不是真的停、播放中改画质档）一个测试都没有。
+ * 这些恰好是设备上出问题时最难查的一类。
+ *
+ * 驱动方式：**不用 rAF**。实测无头 Chromium 的虚拟时间下 rAF 基本不触发（只出了 2 帧），
+ * 靠它测就等于测了个空气。改为用受控时间戳调 `deck.stepFrame()` ——
+ * 那是 rAF 回调内部调的同一个函数，所以验证的就是真跑的那份逻辑。
+ */
+function buildSoakPage() {
+  return `<!doctype html>
+<html><body>
+<canvas id="gl" style="width:200px;height:150px"></canvas>
+<pre id="out">pending</pre>
+<script src="../resources/webview/runner.js"></script>
+<script>
+(function () {
+  var FIXTURE = ${JSON.stringify(FIXTURES[0].json)};
+  var results = [];
+  function rec(name, ok, detail) { results.push({ name: name, ok: !!ok, detail: detail || '' }); }
+  function finish() {
+    var failed = results.filter(function (r) { return !r.ok; }).length;
+    document.getElementById('out').textContent =
+      encodeURIComponent(JSON.stringify({ total: results.length, failed: failed, results: results }));
+    document.title = failed ? 'FAIL' : 'PASS';
+  }
+
+  var canvas = document.getElementById('gl');
+  var deck = window.ShaderDeck.create(canvas, {});
+  var snaps = {};
+  function snap() {
+    var s = deck.stats();
+    s.buffer = [deck.gl.drawingBufferWidth, deck.gl.drawingBufferHeight];
+    return s;
+  }
+
+  deck.load(FIXTURE).then(function (res) {
+    rec('载入成功', res.ok, (res.errors || []).join(' | '));
+    if (!res.ok) { finish(); return; }
+
+    deck.start({ timeOffset: 5 });
+    rec('start 后 running 为真', deck.stats().running === true, String(deck.stats().running));
+
+    // 无头 Chromium 的虚拟时间下 rAF 基本不触发（实测只出了 2 帧），
+    // 所以用受控时间戳直接驱动渲染循环的「一拍」—— 它和 rAF 回调是同一个函数。
+    var t = 1000;
+    function pump(times, gapMs) {
+      for (var k = 0; k < times; k++) {
+        t += gapMs;
+        deck.stepFrame(t);
+      }
+    }
+
+    pump(30, 17);
+    snaps.a = snap();
+    pump(60, 17);
+    snaps.b = snap();
+
+    // 限帧：紧接着再来一拍（间隔 1ms，远小于 60fps 的 16.7ms）应被挡掉
+    snaps.capped = deck.stepFrame(t + 1);
+
+    deck.setScale(0.5);
+    snaps.scaleAfter = [deck.gl.drawingBufferWidth, deck.gl.drawingBufferHeight];
+    pump(60, 17);
+    snaps.d = snap();
+
+    deck.pause();
+    snaps.e0 = snap();
+    pump(30, 17);
+    snaps.e = snap();
+
+    deck.resume();
+    pump(30, 17);
+    snaps.f = snap();
+
+    deck.stop();
+    snaps.g0 = snap();
+    pump(30, 17);
+    snaps.g = snap();
+
+    check();
+  }).catch(function (e) {
+    rec('load 抛异常', false, String(e && e.message || e));
+    finish();
+  });
+
+  function check() {
+    rec('渲染循环在出帧', snaps.b.frames > snaps.a.frames,
+      snaps.a.frames + ' → ' + snaps.b.frames);
+    rec('iTime 在推进', snaps.b.time > snaps.a.time,
+      snaps.a.time + ' → ' + snaps.b.time);
+    rec('timeOffset 生效（起点 >= 5s）', snaps.a.time >= 5, String(snaps.a.time));
+    rec('默认画质档 0.75 已落在缓冲区（200×0.75）', snaps.a.buffer[0] === 150,
+      JSON.stringify(snaps.a.buffer));
+    rec('限帧生效（间隔不足的一拍被挡掉）', snaps.capped === false, String(snaps.capped));
+    rec('播放中改画质档：缓冲区真的变了（200×0.5）', snaps.scaleAfter[0] === 100,
+      JSON.stringify(snaps.scaleAfter));
+    rec('改档后循环没断（帧数继续涨）', snaps.d.frames > snaps.b.frames,
+      snaps.b.frames + ' → ' + snaps.d.frames);
+    rec('暂停后不再出帧（D4：不可见即停）', snaps.e.frames === snaps.e0.frames,
+      snaps.e0.frames + ' → ' + snaps.e.frames);
+    rec('恢复后继续出帧', snaps.f.frames > snaps.e.frames,
+      snaps.e.frames + ' → ' + snaps.f.frames);
+    rec('恢复后 iTime 从暂停处继续（不跳回起点）', snaps.f.time >= snaps.e.time - 0.05,
+      snaps.e.time + ' → ' + snaps.f.time);
+    rec('停止后彻底不再出帧', snaps.g.frames === snaps.g0.frames,
+      snaps.g0.frames + ' → ' + snaps.g.frames);
+    rec('停止后 running 为假', snaps.g.running === false, String(snaps.g.running));
+
+    deck.dispose();
+    finish();
+  }
+})();
+</script>
+</body></html>`;
+}
+
 function main() {
   mkdirSync(TMP, { recursive: true });
   copyFileSync(DECK_SRC, DECK_SHIPPED);
@@ -421,6 +540,7 @@ function main() {
       buildRunnerTestPage(),
       12000,
     ],
+    ["页面 C · 播放回路 soak", "harness-soak.html", buildSoakPage(), 20000],
   ];
 
   const all = [];
