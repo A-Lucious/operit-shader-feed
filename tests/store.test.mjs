@@ -359,12 +359,17 @@ async function main() {
   console.log("── 并发写入：共享的 .tmp 路径不能导致「保存随机失败」 ──");
   {
     const mem = makeMemFs();
-    const store = createStore(mem.fs, { root: ROOT_DIR, hash: deterministicHash });
+    const store = createStore(mem.fs, {
+      root: ROOT_DIR,
+      hash: deterministicHash,
+    });
 
     // 12 条同时保存：它们都要写同一个 index.json（→ 同一个 .tmp）
     const N = 12;
     const results = await Promise.allSettled(
-      Array.from({ length: N }, (_, i) => store.saveShader(makeRecord("cc" + i), true)),
+      Array.from({ length: N }, (_, i) =>
+        store.saveShader(makeRecord("cc" + i), true),
+      ),
     );
     const rejected = results.filter((r) => r.status === "rejected");
     eq(
@@ -381,7 +386,10 @@ async function main() {
     );
 
     // 纹理并发：每一次都会写台账 + 可能触发淘汰，所以落盘更密集
-    const urls = Array.from({ length: 8 }, (_, i) => "https://s/tex" + i + ".png");
+    const urls = Array.from(
+      { length: 8 },
+      (_, i) => "https://s/tex" + i + ".png",
+    );
     const texResults = await Promise.allSettled(
       urls.map((url) => store.recordTexture(url, b64(64), "png")),
     );
@@ -389,7 +397,11 @@ async function main() {
       "并发写 8 张纹理：一条都不该失败",
       texResults.filter((r) => r.status === "rejected").length,
       0,
-      JSON.stringify(texResults.filter((r) => r.status === "rejected").map((r) => String(r.reason))),
+      JSON.stringify(
+        texResults
+          .filter((r) => r.status === "rejected")
+          .map((r) => String(r.reason)),
+      ),
     );
     eq("台账里 8 张都在", (await store.usage()).textureCount, 8);
     eq(

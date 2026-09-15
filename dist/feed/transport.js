@@ -104,7 +104,16 @@ function createSessionTransport(bridge, recipe = defaultRecipe(), options = {}) 
      * 发一次请求并等结果。
      * 关键：**按 requestId 关联**，不是按到达顺序 —— 并发详情请求必须各拿各的。
      */
+    /** dispose 之后不再接受新请求：bridge 已解绑，结果永远回不来，等下去只能等到超时。 */
+    let disposed = false;
     function send(spec) {
+        if (disposed) {
+            return Promise.resolve({
+                ok: false,
+                text: "",
+                error: "transport 已关闭",
+            });
+        }
         seq += 1;
         const requestId = "r" + now() + "_" + seq;
         return new Promise((resolve) => {
@@ -171,10 +180,22 @@ function createSessionTransport(bridge, recipe = defaultRecipe(), options = {}) 
             }
             return { ok: true, text: result.text };
         },
-        /** 解绑 bridge 回调（关闭插件时调，避免回调泄漏到下一次会话）。 */
+        /**
+         * 关闭传输层：解绑 bridge 回调，并让**所有未决请求就地失败**。
+         *
+         * 为什么不能只 `pending.clear()`：那样未决的 promise 只能等超时落地 ——
+         * 而宿主没有 setTimeout 时会**永远不落地**，于是 crawler 的槽位不减、
+         * `ensure` 永远不 resolve、feed 的补货标志永久卡住（整条链停摆）。
+         * 就地失败则让每个调用者立刻拿到一个明确的失败，能继续往下走。
+         */
         dispose() {
+            disposed = true;
             detach();
+            const inFlight = [...pending.values()];
             pending.clear();
+            for (const resolve of inFlight) {
+                resolve({ ok: false, text: "transport 已关闭（未决请求被取消）" });
+            }
         },
     };
 }

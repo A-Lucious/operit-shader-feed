@@ -226,26 +226,30 @@ export function createStore(fs: StoreFs, options: StoreOptions) {
 
   function loadIndex(): Promise<IndexFile> {
     if (!indexPromise) {
-      indexPromise = readJson<Partial<IndexFile>>(indexFile, {}).then((loaded) => ({
-        version: INDEX_VERSION,
-        shaders:
-          loaded && typeof loaded.shaders === "object" && loaded.shaders
-            ? loaded.shaders
-            : {},
-      }));
+      indexPromise = readJson<Partial<IndexFile>>(indexFile, {}).then(
+        (loaded) => ({
+          version: INDEX_VERSION,
+          shaders:
+            loaded && typeof loaded.shaders === "object" && loaded.shaders
+              ? loaded.shaders
+              : {},
+        }),
+      );
     }
     return indexPromise;
   }
 
   function loadLedger(): Promise<LedgerFile> {
     if (!ledgerPromise) {
-      ledgerPromise = readJson<Partial<LedgerFile>>(ledgerFile, {}).then((loaded) => ({
-        version: INDEX_VERSION,
-        textures:
-          loaded && typeof loaded.textures === "object" && loaded.textures
-            ? loaded.textures
-            : {},
-      }));
+      ledgerPromise = readJson<Partial<LedgerFile>>(ledgerFile, {}).then(
+        (loaded) => ({
+          version: INDEX_VERSION,
+          textures:
+            loaded && typeof loaded.textures === "object" && loaded.textures
+              ? loaded.textures
+              : {},
+        }),
+      );
     }
     return ledgerPromise;
   }

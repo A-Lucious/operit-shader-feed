@@ -60,9 +60,11 @@ function makeFakeBridge() {
         };
       },
     },
+    /** 投递结果；返回 false 表示当前没有回调可投（用来验证 dispose 真的解绑了）。 */
     deliver(requestId, ok_, payload) {
-      if (!callback) throw new Error("没有注册结果回调");
+      if (!callback) return false;
       callback(requestId, ok_, payload);
+      return true;
     },
     /** 从注入脚本里抠出 requestId —— 顺带验证脚本确实带上了这个形状的 id。 */
     requestIds() {
@@ -305,7 +307,11 @@ async function main() {
     const transport = createSessionTransport(fake.bridge, recipe, {
       timeoutMs: 500,
     });
-    const promise = transport.fetchShader("zz9");
+    // 这个请求不会被投递结果，所以它应当按超时落地。
+    // （原先写的是 `const promise = ...` 但从不 await —— 浮动 Promise 一旦 reject 就是
+    //  未处理的 rejection，而且不报任何错。）
+    const settled = await transport.fetchShader("zz9");
+    eq("未投递的请求按超时落地（不永久挂起）", settled.ok, false);
     await wait(0);
     ok(
       "自定义详情的路径进了脚本",
@@ -317,6 +323,43 @@ async function main() {
       !fake.injected[0].includes("init.body = REQ.body;") ||
         fake.injected[0].includes("if (REQ.body)"),
     );
+  }
+
+  console.log("── dispose：未决请求必须就地失败，不能只从表里删掉 ──");
+  {
+    const fake = makeFakeBridge();
+    // 超时故意设得很长（60 秒）：若不就地失败，这条测试会挂在这里而不是通过
+    const transport = createSessionTransport(fake.bridge, defaultRecipe(), { timeoutMs: 60000 });
+
+    const p1 = transport.fetchShader('a');
+    const p2 = transport.fetchShader('b');
+    await wait(0);
+    eq('两个请求都注入了', fake.injected.length, 2);
+    eq('dispose 之前 bridge 是接着的', fake.deliver(fake.requestIds()[0], true, 'x'), true);
+
+    // p1 已被上面的投递落地；再造一个未决的来验证取消
+    const p3 = transport.fetchShader('c');
+    await wait(0);
+
+    transport.dispose();
+
+    const r1 = await p1;
+    const r2 = await p2;
+    const r3 = await p3;
+    ok('未决请求立刻失败，而不是等 60 秒超时', r2.ok === false && r3.ok === false,
+      JSON.stringify([r1.ok, r2.ok, r3.ok]));
+    ok('错误信息说明是被关闭/取消的', String(r3.error).includes('已关闭'), String(r3.error));
+    eq('dispose 之后 bridge 确实解绑了', fake.deliver(fake.requestIds()[0], true, 'late'), false);
+    // 不要写成 `r1.ok === true || r1.ok === false` —— 那是恒真的同义反复，
+    // 比没有断言更糟（它把“没验证”伪装成“验证通过”）。
+    eq('dispose 之前已落地的结果保持 ok:true', r1.ok, true);
+
+    // dispose 之后的新请求要立刻失败，而不是挂在那儿等超时
+    const started = Date.now();
+    const after = await transport.fetchShader('d');
+    eq('dispose 后新请求立刻失败', after.ok, false);
+    ok('没有白等超时', Date.now() - started < 500, Date.now() - started + 'ms');
+    ok('新请求的失败原因可读', String(after.error).includes('已关闭'), String(after.error));
   }
 
   console.log(`\n${pass}/${pass + failures.length} 通过`);
