@@ -452,7 +452,10 @@ async function main() {
     // 损坏的 JSON 也要上报，而不只是默默清空
     const mem = makeMemFs();
     const warnings = [];
-    const seed = createStore(mem.fs, { root: ROOT_DIR, hash: deterministicHash });
+    const seed = createStore(mem.fs, {
+      root: ROOT_DIR,
+      hash: deterministicHash,
+    });
     await seed.saveShader(makeRecord("corrupt1"), true);
     mem.files.set(ROOT_DIR + "/index.json", { text: "{ 这不是合法 JSON" });
 

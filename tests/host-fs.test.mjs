@@ -179,12 +179,20 @@ async function main() {
     } catch (err) {
       permErr = err;
     }
-    ok("权限错误必须抛出（不能伪装成「不存在」）", permErr !== null, String(permErr && permErr.message));
+    ok(
+      "权限错误必须抛出（不能伪装成「不存在」）",
+      permErr !== null,
+      String(permErr && permErr.message),
+    );
 
     readImpl = async () => {
       throw new Error("文件不存在");
     };
-    eq("中文「不存在」依然识别为不存在 → null", await fs.readText("/r/index.json"), null);
+    eq(
+      "中文「不存在」依然识别为不存在 → null",
+      await fs.readText("/r/index.json"),
+      null,
+    );
 
     readImpl = async (p) => ({ path: p, content: '{"shaders":{}}', size: 15 });
     calls.length = 0;

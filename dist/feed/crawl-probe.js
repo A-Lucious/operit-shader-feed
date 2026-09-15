@@ -237,7 +237,7 @@ exports.CRAWL_PROBE_SCRIPT = `(function () {
     }
     var record = { id: c.id, method: c.method, path: c.path, body: c.body, status: null };
     var started = Date.now();
-    fetch(c.path + (c.method === "GET" ? "" : ""), init)
+    fetch(c.path, init)
       .then(function (res) {
         record.status = res.status;
         record.contentType = res.headers.get("content-type");

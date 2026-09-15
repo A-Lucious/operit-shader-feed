@@ -21,6 +21,7 @@ const parse_js_1 = require("../../feed/parse.js");
 const selftest_js_1 = require("../../feed/selftest.js");
 const store_crawler_js_1 = require("../../feed/store-crawler.js");
 const feed_js_1 = require("../../feed/feed.js");
+const feed_status_js_1 = require("../../feed/feed-status.js");
 const runner_resources_js_1 = require("../shared/runner-resources.js");
 /**
  * P0 内置 demo shader：GLSL1、无通道，只验证 deck 的渲染回路能跑通。
@@ -105,8 +106,11 @@ function Screen(ctx) {
     // 可变 ref：store 与告警都挂在同一个对象上，避免重渲染时被重建。
     const [cacheRefs] = ctx.useState("cacheRefs", { store: null, warnings: [] });
     // 串流播放器的可变引用；null 表示还没开始播。
+    // offline / lastStatus 也放这里：它们不参与渲染，只是用来避免每秒都 setState 一次。
     const [feedRef] = ctx.useState("feedRef", {
         feed: null,
+        offline: true,
+        lastStatus: "",
     });
     // 可变标记，不参与渲染：记录「本次页面加载是否已经下发过 demo」。
     // 用 useState 持有的对象当 ref，避免依赖 useRef 的运行时可用性。
@@ -154,10 +158,9 @@ function Screen(ctx) {
                 },
             });
             feedRef.feed = feed;
-            const snapshot = feed.snapshot();
-            setStatusText("离线刷缓存：前方 " +
-                snapshot.ahead +
-                " 条待播（每条约 30 秒自动上滑）");
+            // 这条通路就是离线缓存（实时爬虫还没接上），所以耗尽时的措辞按离线来。
+            feedRef.offline = true;
+            feedRef.lastStatus = "";
             const first = feed.start();
             if (first.current) {
                 void sendShaderToRunner(first.current, feed.timeOffsetSeconds());
@@ -166,6 +169,32 @@ function Screen(ctx) {
         catch (error) {
             setStatusText("启动播放失败，退回内置示例: " + toErrorText(error));
             sendDemoShader();
+        }
+    }
+    /**
+     * 状态行：把 feed 的内部状态翻译成一句话，并且**只在内容真的变了才 setState**
+     *（每秒一次的重渲染在低端机上是白费电）。
+     *
+     * 必须每次 tick / 每次上滑都调：不调的话，缓冲空了或缓存刷完了，界面就是
+     * **静默冻结** —— 用户上滑没反应，也拿不到任何解释。
+     */
+    function refreshFeedStatus() {
+        const feed = feedRef.feed;
+        if (!feed) {
+            return;
+        }
+        const s = feed.snapshot();
+        const next = (0, feed_status_js_1.describeFeedStatus)({
+            ahead: s.ahead,
+            waiting: s.waiting,
+            exhausted: s.exhausted,
+            paused: s.paused,
+            index: s.index,
+            offline: feedRef.offline,
+        });
+        if (next !== feedRef.lastStatus) {
+            feedRef.lastStatus = next;
+            setStatusText(next);
         }
     }
     /** 页面每秒一次的 stats 上报 = feed 的时钟（宿主里就不需要定时器了）。 */
@@ -188,6 +217,7 @@ function Screen(ctx) {
         if (tick.advanced && tick.current) {
             void sendShaderToRunner(tick.current, feed.timeOffsetSeconds());
         }
+        refreshFeedStatus();
     }
     /** 页面侧竖滑手势 → 下一条。 */
     function onRunnerSwipe(text) {
@@ -210,6 +240,9 @@ function Screen(ctx) {
         if (tick.advanced && tick.current) {
             void sendShaderToRunner(tick.current, feed.timeOffsetSeconds());
         }
+        // 上滑失败（advanced=false，也就是前方真的没有下一条）必须给个说法，
+        // 否则用户看到的就是「滑了但没反应」。
+        refreshFeedStatus();
     }
     /**
      * 把内置示例写进**真实缓存**，这样完全离线也能刷 feed。

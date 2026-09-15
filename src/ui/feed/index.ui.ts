@@ -32,6 +32,7 @@ import {
 import { CANNED, runSelfTest } from "../../feed/selftest.js";
 import { createStoreCrawler } from "../../feed/store-crawler.js";
 import { createFeed, type Feed } from "../../feed/feed.js";
+import { describeFeedStatus } from "../../feed/feed-status.js";
 
 import {
   HOST_INTERFACE_NAME,
@@ -150,8 +151,15 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   );
 
   // 串流播放器的可变引用；null 表示还没开始播。
-  const [feedRef] = ctx.useState<{ feed: Feed | null }>("feedRef", {
+  // offline / lastStatus 也放这里：它们不参与渲染，只是用来避免每秒都 setState 一次。
+  const [feedRef] = ctx.useState<{
+    feed: Feed | null;
+    offline: boolean;
+    lastStatus: string;
+  }>("feedRef", {
     feed: null,
+    offline: true,
+    lastStatus: "",
   });
 
   // 可变标记，不参与渲染：记录「本次页面加载是否已经下发过 demo」。
@@ -211,12 +219,9 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
         },
       });
       feedRef.feed = feed;
-      const snapshot = feed.snapshot();
-      setStatusText(
-        "离线刷缓存：前方 " +
-          snapshot.ahead +
-          " 条待播（每条约 30 秒自动上滑）",
-      );
+      // 这条通路就是离线缓存（实时爬虫还没接上），所以耗尽时的措辞按离线来。
+      feedRef.offline = true;
+      feedRef.lastStatus = "";
       const first = feed.start();
       if (first.current) {
         void sendShaderToRunner(first.current, feed.timeOffsetSeconds());
@@ -224,6 +229,33 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     } catch (error) {
       setStatusText("启动播放失败，退回内置示例: " + toErrorText(error));
       sendDemoShader();
+    }
+  }
+
+  /**
+   * 状态行：把 feed 的内部状态翻译成一句话，并且**只在内容真的变了才 setState**
+   *（每秒一次的重渲染在低端机上是白费电）。
+   *
+   * 必须每次 tick / 每次上滑都调：不调的话，缓冲空了或缓存刷完了，界面就是
+   * **静默冻结** —— 用户上滑没反应，也拿不到任何解释。
+   */
+  function refreshFeedStatus(): void {
+    const feed = feedRef.feed;
+    if (!feed) {
+      return;
+    }
+    const s = feed.snapshot();
+    const next = describeFeedStatus({
+      ahead: s.ahead,
+      waiting: s.waiting,
+      exhausted: s.exhausted,
+      paused: s.paused,
+      index: s.index,
+      offline: feedRef.offline,
+    });
+    if (next !== feedRef.lastStatus) {
+      feedRef.lastStatus = next;
+      setStatusText(next);
     }
   }
 
@@ -246,6 +278,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     if (tick.advanced && tick.current) {
       void sendShaderToRunner(tick.current, feed.timeOffsetSeconds());
     }
+    refreshFeedStatus();
   }
 
   /** 页面侧竖滑手势 → 下一条。 */
@@ -270,6 +303,9 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     if (tick.advanced && tick.current) {
       void sendShaderToRunner(tick.current, feed.timeOffsetSeconds());
     }
+    // 上滑失败（advanced=false，也就是前方真的没有下一条）必须给个说法，
+    // 否则用户看到的就是「滑了但没反应」。
+    refreshFeedStatus();
   }
 
   /**
