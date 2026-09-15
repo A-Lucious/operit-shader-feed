@@ -208,7 +208,12 @@ async function main() {
     const readCall = calls.filter((c) => c[0] === "read").pop() || [];
     eq("带环境时走 options 形式：path 正确", readCall[1], "/r/index.json");
     eq("带环境时走 options 形式：environment 正确", readCall[2], "android");
-    eq("没有多传位置参数（多传会被静默忽略）", readCall[3], 0, JSON.stringify(readCall));
+    eq(
+      "没有多传位置参数（多传会被静默忽略）",
+      readCall[3],
+      0,
+      JSON.stringify(readCall),
+    );
 
     readImpl = async (p) => ({ path: p, content: '{"shaders":{}}', size: 15 });
     calls.length = 0;
