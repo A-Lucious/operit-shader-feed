@@ -1,0 +1,310 @@
+/**
+ * 手写的 Operit ToolPkg API 最小声明子集 —— 只覆盖 P0 侧边栏外壳实际用到的符号。
+ *
+ * 为什么不直接引用 Operit 的 `examples/types/*.d.ts`：
+ * Operit 本体是 LGPL-3.0，本仓库是 MIT。把它的类型文件抄进本仓库会造成许可证混合。
+ * 需要完整声明时，去 Operit 仓库的 `examples/types/` 查阅对照，不要复制过来。
+ *
+ * 本文件不含任何 import/export，因此是全局长声明，项目内所有 .ts 可直接使用这些名字。
+ */
+
+type LocalizedText = string | { [lang: string]: string };
+
+// ------------------------------------------------------------ ToolPkg 注册
+
+interface ToolPkgUiRouteRegistration {
+ id: string;
+ route: string;
+ runtime: "compose_dsl";
+ screen: ComposeDslScreen;
+ params?: Record<string, unknown>;
+ title?: LocalizedText;
+ keepAlive?: boolean;
+}
+
+interface ToolPkgNavigationEntryRegistration {
+ id: string;
+ route: string;
+ surface: "toolbox" | "main_sidebar_plugins";
+ title?: LocalizedText;
+ icon?: string;
+ order?: number;
+}
+
+interface ToolPkgApi {
+ registerUiRoute(definition: ToolPkgUiRouteRegistration): void;
+ registerNavigationEntry(definition: ToolPkgNavigationEntryRegistration): void;
+ /**
+  * 把 manifest.resources 里声明的资源释放到宿主临时目录，返回**落盘后的绝对路径**。
+  * 注意：返回的是路径字符串，不是文件内容。
+  */
+ readResource(
+  key: string,
+  outputFileName?: string,
+  internal?: boolean,
+ ): Promise<string>;
+}
+
+declare const ToolPkg: ToolPkgApi;
+
+/** Material 图标注册表；按名字取图标。 */
+declare const Icons: { [name: string]: string };
+
+/**
+ * 宿主确实提供 `console`，但这里**故意不声明全局 `console`**：
+ * 一旦编译时引入了 lib.dom（或任何声明了 `console` 的 lib），重声明会直接报 TS2451。
+ * 需要打日志时，在具体 .ts 里用 globalThis 取值。
+ *
+ * 注：本文件是纯声明文件，不得包含任何函数实现。
+ */
+
+// ------------------------------------------------------------ Compose DSL
+
+interface ComposeNode {
+ type: string;
+ props?: Record<string, unknown>;
+ children?: ComposeNode[];
+}
+
+type ComposeChildren = ComposeNode | ComposeNode[] | null | undefined;
+
+type ComposeNodeFactory<TProps = Record<string, unknown>> = (
+ props?: TProps,
+ children?: ComposeChildren,
+) => ComposeNode;
+
+/**
+ * 各组件的 props 类型在两个官方示例里是逐字段精确声明的。
+ * 这里故意放宽成 Record<string, unknown>：P0 只依赖少数几个字段，
+ * 复刻全部 props 类型既没必要也会引入维护负担。
+ */
+interface ComposeUiFactories {
+ Box: ComposeNodeFactory;
+ Column: ComposeNodeFactory;
+ Row: ComposeNodeFactory;
+ Spacer: ComposeNodeFactory;
+ Text: ComposeNodeFactory;
+ Button: ComposeNodeFactory;
+ IconButton: ComposeNodeFactory;
+ Card: ComposeNodeFactory;
+ Surface: ComposeNodeFactory;
+ Icon: ComposeNodeFactory;
+ WebView: ComposeNodeFactory;
+}
+
+interface ComposeColorToken {
+ __colorToken: string;
+ alpha?: number;
+ copy(options: { alpha: number }): ComposeColorToken;
+}
+
+type ComposeColor = string | ComposeColorToken;
+
+interface ComposeMaterialTheme {
+ colorScheme: { [token: string]: ComposeColorToken };
+}
+
+type ComposeWebViewJavascriptInterfaceMethod = (
+ ...args: unknown[]
+) => unknown | Promise<unknown>;
+
+type ComposeWebViewJavascriptInterface = Record<
+ string,
+ ComposeWebViewJavascriptInterfaceMethod
+>;
+
+interface ComposeWebViewLoadHtmlOptions {
+ baseUrl?: string;
+ mimeType?: string;
+ encoding?: string;
+}
+
+interface ComposeWebViewController {
+ readonly key: string;
+ loadUrl(url: string, headers?: Record<string, string>): void;
+ loadHtml(html: string, options?: ComposeWebViewLoadHtmlOptions): void;
+ reload(): void;
+ stopLoading(): void;
+ goBack(): void;
+ goForward(): void;
+ clearHistory(): void;
+ evaluateJavascript<TResult = unknown>(
+  script: string,
+ ): Promise<TResult | null | undefined>;
+ addJavascriptInterface(
+  name: string,
+  object: ComposeWebViewJavascriptInterface,
+ ): void;
+ removeJavascriptInterface(name: string): void;
+}
+
+interface ComposeWebViewResourceRequest {
+ url: string;
+ method?: string | null;
+ headers?: Record<string, string>;
+ isMainFrame?: boolean;
+ hasGesture?: boolean;
+ isRedirect?: boolean;
+ scheme?: string | null;
+}
+
+interface ComposeWebViewResourceResponse {
+ mimeType?: string;
+ encoding?: string;
+ statusCode?: number;
+ reasonPhrase?: string;
+ headers?: Record<string, string>;
+ filePath: string;
+ text?: never;
+ base64?: never;
+}
+
+type ComposeWebViewResourceDecision =
+ | { action: "allow" }
+ | { action: "block" }
+ | { action: "rewrite"; url: string; headers?: Record<string, string> }
+ | { action: "respond"; response: ComposeWebViewResourceResponse };
+
+interface ComposeWebViewNavigationRequest {
+ url: string;
+ isMainFrame?: boolean;
+ hasGesture?: boolean;
+ scheme?: string | null;
+}
+
+type ComposeWebViewNavigationDecision =
+ | { action: "allow" }
+ | { action: "cancel" }
+ | { action: "rewrite"; url: string; headers?: Record<string, string> }
+ | { action: "external"; url?: string };
+
+interface ComposeDslContext {
+ readonly UI: ComposeUiFactories;
+ MaterialTheme: ComposeMaterialTheme;
+ useState<T>(key: string, initialValue: T): [T, (value: T) => void];
+ createWebViewController(key: string): ComposeWebViewController;
+ showToast(message: string): Promise<void> | void;
+}
+
+type ComposeDslScreen = (
+ ctx: ComposeDslContext,
+) => ComposeNode | Promise<ComposeNode>;
+
+// ------------------------------------------------------- Tools.Files（P2 存储层）
+//
+// 同样只声明实际用到的部分。完整签名见 Operit 仓库的
+// docs/doc-src/package-dev/files.md 与 examples/types/files.d.ts（不要在本地复制）。
+
+type FileEnvironment = "android" | "linux";
+
+interface FileEntryInfo {
+ name: string;
+ isDirectory: boolean;
+ size: number;
+}
+
+interface DirectoryListingData {
+ path: string;
+ entries: FileEntryInfo[];
+}
+
+interface FileContentData {
+ path: string;
+ content: string;
+ size: number;
+}
+
+interface BinaryFileContentData {
+ path: string;
+ /** Base64 编码的内容 */
+ contentBase64: string;
+ size: number;
+}
+
+interface FileExistsData {
+ path: string;
+ exists: boolean;
+ isDirectory?: boolean;
+ size?: number;
+}
+
+interface FileInfoData {
+ path: string;
+ exists: boolean;
+ /** "file" | "directory" | "other" */
+ fileType: string;
+ size: number;
+ lastModified: string;
+}
+
+interface ToolsFilesApi {
+ list(
+  path: string,
+  environment?: FileEnvironment,
+ ): Promise<DirectoryListingData>;
+ read(path: string, environment?: FileEnvironment): Promise<FileContentData>;
+ readBinary(
+  path: string,
+  environment?: FileEnvironment,
+ ): Promise<BinaryFileContentData>;
+ write(
+  path: string,
+  content: string,
+  append?: boolean,
+  environment?: FileEnvironment,
+ ): Promise<unknown>;
+ writeBinary(
+  path: string,
+  base64Content: string,
+  environment?: FileEnvironment,
+ ): Promise<unknown>;
+ exists(path: string, environment?: FileEnvironment): Promise<FileExistsData>;
+ info(path: string, environment?: FileEnvironment): Promise<FileInfoData>;
+ mkdir(
+  path: string,
+  createParents?: boolean,
+  environment?: FileEnvironment,
+ ): Promise<unknown>;
+ deleteFile(
+  path: string,
+  recursive?: boolean,
+  environment?: FileEnvironment,
+ ): Promise<unknown>;
+ move(
+  source: string,
+  destination: string,
+  environment?: FileEnvironment,
+ ): Promise<unknown>;
+}
+
+interface ToolsApi {
+ Files: ToolsFilesApi;
+}
+
+declare const Tools: ToolsApi;
+
+// ------------------------------------------------------------------ CryptoJS
+//
+// 宿主桥接的 CryptoJS **只暴露 MD5**（见 docs/doc-src/package-dev/cryptojs.md）。
+// 我们只拿它当纹理解缓存键（128 位，非安全用途），
+// 所以这里不要误以为有 sha256 可用 —— 真写 sha256 会直接报错。
+
+declare const CryptoJS: {
+ MD5(message: string): { toString(encoding?: string): string };
+};
+
+// ---------------------------------------------------------------- 宿主定时器
+//
+// **刻意声明成可选**：宿主（QuickJS 沙箱）到底有没有定时器还没实测确认。
+// 声明成可选的好处是类型系统会**强制**你写运行时守卫 —— 传输层的请求超时、
+// 以及将来任何依赖定时器的地方，都必须能容忍它不存在。
+//
+// 对比：页面（WebView）里的 setTimeout 与这里无关，那个一定有（runner.js 自己在用）。
+
+type HostTimerHandle = number;
+type HostTimer = (handler: () => void, timeoutMs: number) => HostTimerHandle;
+
+declare const setTimeout: HostTimer | undefined;
+declare const clearTimeout: ((handle: HostTimerHandle) => void) | undefined;
+declare const setInterval: HostTimer | undefined;
+declare const clearInterval: ((handle: HostTimerHandle) => void) | undefined;

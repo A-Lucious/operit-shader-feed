@@ -1,0 +1,11 @@
+{
+  "name": "operit-shader-feed",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Operit ToolPkg: live Shadertoy shader feed for the main sidebar.",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  }
+}

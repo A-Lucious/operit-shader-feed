@@ -1,0 +1,38 @@
+{
+  "_comment": "P0 fixture — Common 拼接 + 图片纹理通道。Common 定义采样坐标函数，image pass 调用它；若 Common 未拼接则编译直接报错。纹理由调用方提供像素（P0 由 tests/run.mjs 传入 data URI；P2 起由存储层下载），本文件里的 src 只是信息性字段。纹理为 4x4：texel(0,0)=红 texel(2,2)=绿 texel(3,3)=蓝。按 uv.x 分三区采样，所以断言能同时证明：Common 拼接、纹理上传、采样坐标正确、vflip 未被误加（若 vflip 反转，左区会取到 texel(0,3)=灰而失败）。",
+  "info": {
+    "id": "deckfix_common_texture",
+    "name": "Deck fixture Common + texture",
+    "username": "decktest",
+    "likes": "0",
+    "views": "0",
+    "date": "0"
+  },
+  "renderpass": [
+    {
+      "type": "common",
+      "name": "Common",
+      "inputs": [],
+      "code": "// 由 Common 提供，image pass 依赖它 —— 拼接失败会直接编译报错\nvec2 deckSampleUv(float x) {\n    if (x < 0.3333333) return vec2(0.125, 0.125);\n    if (x < 0.6666667) return vec2(0.5, 0.5);\n    return vec2(0.875, 0.875);\n}\n"
+    },
+    {
+      "type": "image",
+      "name": "Image",
+      "inputs": [
+        {
+          "channel": 0,
+          "ctype": "texture",
+          "id": 1,
+          "src": "/deck-fixture/checker.png",
+          "type": "texture",
+          "sampler": {
+            "filter": "nearest",
+            "wrap": "clamp",
+            "vflip": "false"
+          }
+        }
+      ],
+      "code": "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / iResolution.xy;\n    vec3 c = texture(iChannel0, deckSampleUv(uv.x)).rgb;\n    fragColor = vec4(c, 1.0);\n}\n"
+    }
+  ]
+}

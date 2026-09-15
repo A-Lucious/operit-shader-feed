@@ -1,0 +1,19 @@
+{
+  "_comment": "P0 fixture — GLSL3 路径。带 #version 300 es。若 deck 走了 GLSL1 分支，这个 #version 会落在文件中部从而编译报错，所以编译+渲染成功本身就是 GLSL3 路径成立的证明。",
+  "info": {
+    "id": "deckfix_glsl3",
+    "name": "Deck fixture GLSL3",
+    "username": "decktest",
+    "likes": "0",
+    "views": "0",
+    "date": "0"
+  },
+  "renderpass": [
+    {
+      "type": "image",
+      "name": "Image",
+      "inputs": [],
+      "code": "#version 300 es\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / iResolution.xy;\n    fragColor = vec4(uv, 0.25, 1.0);\n}\n"
+    }
+  ]
+}

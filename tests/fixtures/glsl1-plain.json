@@ -1,0 +1,19 @@
+{
+  "_comment": "P0 fixture — GLSL1 路径。无通道、无 Common。输出是 uv 渐变，用来断言 iResolution 注入与 mainImage 包装。",
+  "info": {
+    "id": "deckfix_glsl1",
+    "name": "Deck fixture GLSL1",
+    "username": "decktest",
+    "likes": "0",
+    "views": "0",
+    "date": "0"
+  },
+  "renderpass": [
+    {
+      "type": "image",
+      "name": "Image",
+      "inputs": [],
+      "code": "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / iResolution.xy;\n    fragColor = vec4(uv, 0.25, 1.0);\n}\n"
+    }
+  ]
+}

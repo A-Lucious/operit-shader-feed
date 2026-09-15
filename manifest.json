@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "toolpkg_id": "com.shaderfeed.operit",
+  "version": "0.5.0",
+  "api_version": "1.0.0",
+  "main": "dist/main.js",
+  "display_name": {
+    "zh": "Shader 流",
+    "en": "Shader Feed",
+    "default": "Shader Feed"
+  },
+  "description": {
+    "zh": "Shader 流：把 Shadertoy shader 在侧边栏 WebView 里实时渲染。带硬件测量页（WebGL context 上限与各画质档实测帧率）、接口契约探测页（在真实会话里实测数据接口）、缓存面板（占用 + 真实绝对路径 + 一键清理），以及**不联网的设备自测**（用内置假数据跑通整条流水线）。",
+    "en": "Shader Feed: live Shadertoy rendering in a sidebar WebView, plus a hardware probe (WebGL context limit and per-quality-scale frame rates), an interface-contract discovery page for a live session, a cache panel (usage, real absolute path, one-tap clear), and an offline self-test that drives the whole pipeline with built-in fixtures.",
+    "default": "Live Shadertoy rendering plus hardware, interface-contract, cache and offline self-test panels."
+  },
+  "enabled_by_default": false,
+  "subpackages": [],
+  "resources": [
+    {
+      "key": "runner_html",
+      "path": "resources/webview/runner.html",
+      "mime": "text/html"
+    },
+    {
+      "key": "runner_js",
+      "path": "resources/webview/runner.js",
+      "mime": "application/javascript"
+    },
+    {
+      "key": "probe_html",
+      "path": "resources/webview/probe.html",
+      "mime": "text/html"
+    }
+  ],
+  "workflow_templates": [],
+  "workspace_templates": []
+}

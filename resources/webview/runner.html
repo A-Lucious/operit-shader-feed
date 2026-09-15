@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Shader Feed</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      /* 画布铺满。deck 用 clientWidth/clientHeight × devicePixelRatio × 画质档
+         反推 drawingBuffer 尺寸，所以这里必须是真实的布局尺寸，不能用 CSS 缩放糊。 */
+      #gl {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        /* 关键：不加这条，浏览器会把竖向触摸当成滚动手势吃掉，
+           我们收不到 pointermove，页面侧滑动检测直接失效。 */
+        touch-action: none;
+      }
+      /* 状态条：真机上编译报错只能靠它看，所以必须可选中可复制，
+         并且限制高度避免把画面顶掉。空的时候不占位。 */
+      #status {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        margin: 0;
+        padding: 6px 10px;
+        max-height: 38vh;
+        overflow: auto;
+        font:
+          12px/1.45 ui-monospace,
+          Menlo,
+          Consolas,
+          monospace;
+        color: #9fe8ff;
+        background: rgba(0, 0, 0, 0.62);
+        white-space: pre-wrap;
+        word-break: break-word;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      #status:empty {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      这个页面**不含任何内联脚本**，只负责提供 DOM。
+      真正的 deck 通过下面这行从同一个虚拟域相对加载。
+
+      为什么不能用 <script src="../resources/...">：宿主是把 runner.html 与 runner.js
+      以**固定文件名**释放到同一个临时目录（见 src/ui/feed/index.ui.ts 的 PageSpec.fileName），
+      再用虚拟域 + 资源拦截服务的，所以两者在服务端是同级的。相对名是唯一稳的写法。
+
+      脚本必须放在 body 结束标签之前：deck 的 IIFE 末尾会立刻回调 ShaderHost.ready()，
+      而宿主收到 ready() 后马上就会发起 __runnerLoad，那时 #gl 必须已经在文档里。
+      （注意：本注释刻意不写出那个结束标签的字面文本，否则按字符串注入工具的脚本会被插进注释里）
+    -->
+    <canvas id="gl"></canvas>
+    <pre id="status"></pre>
+    <script src="runner.js"></script>
+  </body>
+</html>
