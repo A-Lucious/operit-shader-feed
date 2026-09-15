@@ -79,9 +79,16 @@ async function main() {
       typeof thrown === "string" && thrown.length > 0,
       thrown,
     );
-    ok("说清是通道问题", thrown.includes("通道未就绪"), thrown);
     ok("保留了原始错误信息（便于排查）", thrown.includes("no handler"), thrown);
     ok("给出可行动项", thrown.includes("状态条"), thrown);
+    // 真机上工具结果是折叠的，前缀太长会把唯一有用的信息截掉 —— 实测踩过一次，
+    // 屏幕上只剩「读不到编译结果（跨运行时通…」看不出哪一步错了。
+    ok(
+      "错误正文就在开头，不会被折叠截掉",
+      thrown.indexOf("no handler") < 120,
+      thrown.slice(0, 160),
+    );
+    ok("两次尝试都报告了（默认 + 显式 main）", thrown.includes("默认目标") && thrown.includes("显式 main"), thrown);
 
     // 非 Error 抛出（宿主可能直接 throw 字符串）
     const thrownStr = await readCompileResultText(async () => {
@@ -105,11 +112,27 @@ async function main() {
       const text = await readCompileResultText(async () => value);
       ok(
         `拿到 ${expected} 时说清是什么而不是空话`,
-        text.includes("不是可用文本") && text.includes(expected),
+        text.includes("非文本内容") && text.includes(expected),
         text,
       );
       ok(`拿到 ${expected} 时仍给出可行动项`, text.includes("状态条"), text);
     }
+  }
+
+  console.log("── 两次尝试：默认目标失败就显式指定 main 再试一次 ──");
+  {
+    const seen = [];
+    const text = await readCompileResultText(async (channel, payload, options) => {
+      seen.push(options === undefined ? "默认" : JSON.stringify(options));
+      if (seen.length === 1) {
+        throw new Error("target runtime is not active");
+      }
+      return "编译失败：\n" + ERR;
+    });
+    eq("第一次用默认目标", seen[0], "默认");
+    eq("第二次显式 main", seen[1], '{"targetRuntime":"main"}');
+    ok("第二次拿到结果就返回它", text.includes(ERR), text);
+    ok("不再把第一次的失败当结论", !text.includes("not active"), text);
   }
 
   console.log("── 穷举：任何输入都不能产出空话或串值 ──");

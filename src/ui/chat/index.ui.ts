@@ -127,11 +127,14 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
 
   /**
    * 把编译回执转给 main —— 这是 AI 拿到 GLSL 编译器报错的**唯一**途径。
-   * 失败必须静默：这条通道是尽力而为的，它挂了不该连带渲染框也看不见。
+   * 失败**不能静默**：这条方向挂掉的话，AI 永远读不到编译结果，
+   * 而真正的现象（工具报“读不到”）只在对话里出现 —— 必须在这里留下原因。
    */
   function writeCompileIpc(payload: CompileIpcWrite): void {
     Promise.resolve(ToolPkg.ipc.call(IPC_COMPILE_WRITE, payload)).catch(
-      () => undefined,
+      (error: unknown) => {
+        setErrorText("编译结果回传失败: " + toErrorText(error));
+      },
     );
   }
 
