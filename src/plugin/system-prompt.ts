@@ -13,36 +13,37 @@
 const PROMPT_HOOK_ID = "shader_feed_inline_prompt";
 
 const PROMPT_ZH = [
-  "聊天内可实时渲染 shader：在回复里写出 <shader>…</shader>，中间放 Shadertoy 风格的 GLSL，",
-  "聊天里会显示成一块持续动的画面。代码必须定义 void mainImage(out vec4 fragColor, in vec2 fragCoord)，",
-  "不要写 main()。代码里的 < 与 > 要写成 &lt; 与 &gt;（或用 <![CDATA[ … ]]> 包起来），否则 XML 解析会失败。",
+ "聊天内可实时渲染 shader：在回复里写出 <shader>…</shader>，中间放 Shadertoy 风格的 GLSL，",
+ "聊天里会显示成一块持续动的画面。代码必须定义 void mainImage(out vec4 fragColor, in vec2 fragCoord)，",
+ "不要写 main()。代码里的 < 与 > 要写成 &lt; 与 &gt;（或用 <![CDATA[ … ]]> 包起来），否则 XML 解析会失败。",
 ].join("");
 
 const PROMPT_EN = [
-  "Shaders can be rendered live inside the chat: emit <shader>…</shader> with Shadertoy-style GLSL inside, ",
-  "and it renders as a continuously animating block. The code must define ",
-  "void mainImage(out vec4 fragColor, in vec2 fragCoord) — do not write main(). ",
-  "Escape < and > as &lt; and &gt; (or wrap the code in <![CDATA[ … ]]>), otherwise XML parsing fails.",
+ "Shaders can be rendered live inside the chat: emit <shader>…</shader> with Shadertoy-style GLSL inside, ",
+ "and it renders as a continuously animating block. The code must define ",
+ "void mainImage(out vec4 fragColor, in vec2 fragCoord) — do not write main(). ",
+ "Escape < and > as &lt; and &gt; (or wrap the code in <![CDATA[ … ]]>), otherwise XML parsing fails.",
 ].join("");
 
 export function onSystemPromptCompose(
-  event: ToolPkgPromptHookEvent,
+ event: ToolPkgPromptHookEvent,
 ): ToolPkgSystemPromptComposeResult | null {
-  if (!event) {
-    return null;
-  }
-  const stage = event.eventName || event.event || "";
-  if (stage !== "after_compose_system_prompt") {
-    return null;
-  }
-  const payload = event.eventPayload || {};
-  const current = String(payload.systemPrompt || "");
-  const addition = payload.useEnglish ? PROMPT_EN : PROMPT_ZH;
-  return { systemPrompt: current + "\n\n" + addition };
+ if (!event) {
+  return null;
+ }
+ const stage = event.eventName || event.event || "";
+ if (stage !== "after_compose_system_prompt") {
+  return null;
+ }
+ const payload = event.eventPayload || {};
+ const current = String(payload.systemPrompt || "");
+ const addition = payload.useEnglish ? PROMPT_EN : PROMPT_ZH;
+ return { systemPrompt: current + "\n\n" + addition };
 }
 
 /** 供 main.ts 注册用；id 与处理函数集中在这里，不会各改一处。 */
-export const SYSTEM_PROMPT_REGISTRATION: ToolPkgSystemPromptComposeRegistration = {
+export const SYSTEM_PROMPT_REGISTRATION: ToolPkgSystemPromptComposeRegistration =
+ {
   id: PROMPT_HOOK_ID,
   function: onSystemPromptCompose,
-};
+ };

@@ -48,6 +48,7 @@ const SUITE_LABELS = {
   "host-fs.test.mjs": "宿主 FS 适配器",
   "store.test.mjs": "存储层",
   "crawler.test.mjs": "爬取队列",
+  "chat-xml-render.test.mjs": "聊天内渲染钩子",
   "feed.test.mjs": "播放/缓冲状态机",
   "parse.test.mjs": "解析层",
   "store-crawler.test.mjs": "缓存数据源",

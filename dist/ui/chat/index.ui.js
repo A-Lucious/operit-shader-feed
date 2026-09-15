@@ -11,6 +11,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.default = Screen;
 const runner_resources_js_1 = require("../shared/runner-resources.js");
+const chat_shader_state_js_1 = require("../../shared/chat-shader-state.js");
 /** 命名避开组件内的 errorText 状态，否则会被它遮蔽（同名遮蔽后就不是函数了）。 */
 function toErrorText(error) {
     return error instanceof Error ? error.message : String(error);
@@ -39,9 +40,9 @@ function summarizeReport(text) {
 function Screen(ctx) {
     const { UI } = ctx;
     const colors = ctx.MaterialTheme.colorScheme;
-    // 钩子下发的（键名与 chat-xml-render.ts 里的 state 一一对应）
-    const [shaderCode] = ctx.useState("shaderCode", "");
-    const [shaderTitle] = ctx.useState("shaderTitle", "");
+    // 钩子下发的。键名来自共享常量，两边不会写岔（写岔的表现是「聊天里什么都不显示」）。
+    const [shaderCode] = ctx.useState(chat_shader_state_js_1.STATE_KEY_SHADER_CODE, "");
+    const [shaderTitle] = ctx.useState(chat_shader_state_js_1.STATE_KEY_SHADER_TITLE, "");
     const [statusText, setStatusText] = ctx.useState("chatStatus", "正在装载渲染器…");
     const [errorText, setErrorText] = ctx.useState("chatError", "");
     const [ready, setReady] = ctx.useState("chatReady", false);

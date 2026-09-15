@@ -22,6 +22,7 @@ exports.precheckShaderCode = precheckShaderCode;
 exports.parseShaderTag = parseShaderTag;
 exports.onShaderXmlRender = onShaderXmlRender;
 const index_ui_js_1 = __importDefault(require("../ui/chat/index.ui.js"));
+const chat_shader_state_js_1 = require("../shared/chat-shader-state.js");
 /** 我们占用的标签名。太长/太通用都会和别的插件撞。 */
 exports.SHADER_XML_TAG = "shader";
 /**
@@ -121,9 +122,11 @@ function onShaderXmlRender(event) {
         handled: true,
         composeDsl: {
             screen: index_ui_js_1.default,
+            // 键名与界面共用同一份常量：各写一份字面量、写错了不会报错，
+            // 只会表现为「聊天里什么都不显示」。
             state: {
-                shaderCode: parsed.code,
-                shaderTitle: parsed.title,
+                [chat_shader_state_js_1.STATE_KEY_SHADER_CODE]: parsed.code,
+                [chat_shader_state_js_1.STATE_KEY_SHADER_TITLE]: parsed.title,
             },
             memo: {},
         },

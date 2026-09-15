@@ -12,6 +12,10 @@
  */
 
 import chatShaderScreen from "../ui/chat/index.ui.js";
+import {
+  STATE_KEY_SHADER_CODE,
+  STATE_KEY_SHADER_TITLE,
+} from "../shared/chat-shader-state.js";
 
 /** 我们占用的标签名。太长/太通用都会和别的插件撞。 */
 export const SHADER_XML_TAG = "shader";
@@ -131,9 +135,11 @@ export function onShaderXmlRender(
     handled: true,
     composeDsl: {
       screen: chatShaderScreen,
+      // 键名与界面共用同一份常量：各写一份字面量、写错了不会报错，
+      // 只会表现为「聊天里什么都不显示」。
       state: {
-        shaderCode: parsed.code,
-        shaderTitle: parsed.title,
+        [STATE_KEY_SHADER_CODE]: parsed.code,
+        [STATE_KEY_SHADER_TITLE]: parsed.title,
       },
       memo: {},
     },

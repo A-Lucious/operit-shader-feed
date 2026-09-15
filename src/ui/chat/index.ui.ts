@@ -17,6 +17,10 @@ import {
   resolvePathname,
   type RunnerResourcePaths,
 } from "../shared/runner-resources.js";
+import {
+  STATE_KEY_SHADER_CODE,
+  STATE_KEY_SHADER_TITLE,
+} from "../../shared/chat-shader-state.js";
 
 /** 命名避开组件内的 errorText 状态，否则会被它遮蔽（同名遮蔽后就不是函数了）。 */
 function toErrorText(error: unknown): string {
@@ -53,9 +57,9 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   const { UI } = ctx;
   const colors = ctx.MaterialTheme.colorScheme;
 
-  // 钩子下发的（键名与 chat-xml-render.ts 里的 state 一一对应）
-  const [shaderCode] = ctx.useState("shaderCode", "");
-  const [shaderTitle] = ctx.useState("shaderTitle", "");
+  // 钩子下发的。键名来自共享常量，两边不会写岔（写岔的表现是「聊天里什么都不显示」）。
+  const [shaderCode] = ctx.useState(STATE_KEY_SHADER_CODE, "");
+  const [shaderTitle] = ctx.useState(STATE_KEY_SHADER_TITLE, "");
 
   const [statusText, setStatusText] = ctx.useState(
     "chatStatus",
