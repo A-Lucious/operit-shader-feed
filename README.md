@@ -15,7 +15,7 @@ Operit 侧边栏插件：把 [Shadertoy](https://www.shadertoy.com/) 上别人�
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| **P0** | Shadertoy 兼容层（deck）+ runner 页面 + 侧边栏外壳 | ✅ 代码完成，本地 48 项浏览器断言通过 |
+| **P0** | Shadertoy 兼容层（deck）+ runner 页面 + 侧边栏外壳 | ✅ 代码完成，本地 62 项浏览器断言通过（含播放回路 soak） |
 | **P1** | 数据获取：契约探测页 + 容错解析 + 爬取队列 + 传输层 | ✅ 代码完成（122 项断言）；**请求配方待实机确认** |
 | **P2** | 存储：索引 + 正文分文件 + 纹理去重 + 配额 + 清理入口 | ✅ 代码完成（80 项断言） |
 | **P3** | 播放：30 秒自动上滑 + 缓冲补货 + 手势换片 + 离线数据源 | ✅ 代码完成（88 项断言） |
@@ -90,7 +90,7 @@ node tools/check.mjs       # 【唯一验收入口】tsc → deck 同步 → 9 �
 曾经出现过「tsc 失败 → 没有新 dist → 测试跑的是旧产物 → 仍然报全绿 → 包也是旧的」
 这种假绿。最后一步（解包回来与工作区逐字节比对）专门用来防它。
 
-当前基线：**361 项断言 / 9 套全绿**。
+当前基线：**417 项断言 / 10 套全绿**。
 
 ### 目录
 
@@ -107,6 +107,11 @@ src/feed/feed.ts            播放状态机（30s 自动上滑 / 补货阈值 / 
 src/feed/selftest.ts        设备侧自测（内置假数据，不联网）
 src/feed/crawl-probe.ts     契约探测脚本（注入到 shadertoy.com 页面里执行）
 src/ui/feed/index.ui.ts     侧边栏界面（compose_dsl）
+src/ui/chat/index.ui.ts     聊天内渲染界面（固定框高 260）
+src/ui/shared/              虚拟域资源拦截 —— 侧边栏与聊天共用同一份，否则改一处忘另一处就是“某个界面白屏”
+src/plugin/chat-xml-render.ts  xml_render 钩子：把 `<shader>` 换成活的画面
+src/plugin/system-prompt.ts    系统提示钩子：让 AI 知道 `<shader>` 存在
+src/shared/                 跨模块共用常量（聊天 state 键名）
 resources/webview/          runner.html（含 touch-action:none）、probe.html
 ```
 
