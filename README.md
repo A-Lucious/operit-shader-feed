@@ -115,6 +115,25 @@ src/shared/                 跨模块共用常量（聊天 state 键名）
 resources/webview/          runner.html（含 touch-action:none）、probe.html
 ```
 
+### 与宿主契约的核对（装包前已逐项对过 Operit 源码）
+
+入口类错误有个很恶心的性质：**宿主不报错，只是什么都不显示**（侧边栏没入口、页面空白、
+聊天里不出图）。所以下面每一条都是在装包前对着官方示例与 Kotlin 实现核对过的，不是猜的：
+
+| 契约 | 核对结论 |
+|---|---|
+| `registerNavigationEntry({ surface })` | 只能是 `toolbox` / `main_sidebar_plugins`（`ToolPkgCommonPluginConstants.kt`），写错 = 侧边栏不出现入口 |
+| 路由格式 | `toolpkg:<toolpkg_id>:ui:<id>`，与 `examples/dino_runner` 同形 |
+| 入口函数 | `export function registerToolPkg()`；tsc 的 CJS 产物是 `exports.registerToolPkg = …`，**在文件开头**（`tail` 看不到，别因此以为没导出） |
+| `registerUiRoute({ runtime })` | `compose_dsl`；`keepAlive` 省略即宿主的默认 `false`（`PackageManager.kt`）—— 正是耍的：离开侧边栏就别再渲染了 |
+| UI 模块入口 | 宿主只认 `exports.default` / `exports.Screen`（`JsComposeDslRuntimeScript.kt`），所以两个 `index.ui.ts` 都是 `export default function Screen` |
+| XML 渲染结果 | `{ handled, composeDsl: { screen, state, memo } }`；`screen` 必须是**模块函数**（宿主给导出贴 `__operit_toolpkg_module_path` 标记，传字符串路径会直接抛错） |
+| prompt 钩子 | 返回 `{ systemPrompt }`，阶段名 `after_compose_system_prompt`，与 `examples/thinking_guidance` 同形 |
+| 聊天框的资源 | 与侧边栏共用 `runner-resources.ts`，**不依赖侧边栏路由** —— 所以聊天里也能拿到 `runner.js` |
+
+这一节的价值在于：这些错误**要装包后才会暴露，而且表现为「没反应」**（不是报错），
+定位成本高，返工要再走一次安装流程。
+
 ### 几条不该被"顺手优化"掉的设计
 
 - **`waiting()` 表示"真的卡住"，不是"缓冲为空"**。当前这条还在正常播、只是队列空了不算卡住。

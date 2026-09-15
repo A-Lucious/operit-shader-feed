@@ -69,7 +69,11 @@ function main() {
     const t = status({ ahead: 5 });
     ok("包含待播条数", t.includes("前方 5 条待播"), t);
     ok("顺带交代节奏（30 秒）", t.includes("30 秒"), t);
-    ok("1 条时也读得通", status({ ahead: 1 }).includes("前方 1 条待播"), status({ ahead: 1 }));
+    ok(
+      "1 条时也读得通",
+      status({ ahead: 1 }).includes("前方 1 条待播"),
+      status({ ahead: 1 }),
+    );
   }
 
   console.log("── 缓冲为空但当前这条还在正常播：绝不能喊「卡住了」──");
@@ -81,23 +85,54 @@ function main() {
 
   console.log("── 真的卡住：区分「源已耗尽」与「暂时拿不到」──");
   {
-    const done = status({ ahead: 0, waiting: true, exhausted: true, index: 12 });
-    ok("耗尽时说「刷完」而不是「卡住」", done.includes("刷完") && !done.includes("卡住"), done);
+    const done = status({
+      ahead: 0,
+      waiting: true,
+      exhausted: true,
+      index: 12,
+    });
+    ok(
+      "耗尽时说「刷完」而不是「卡住」",
+      done.includes("刷完") && !done.includes("卡住"),
+      done,
+    );
     ok("交代规模（共 12 条）", done.includes("12"), done);
     ok("给出可行动项（连网）", done.includes("连网"), done);
 
-    const online = status({ ahead: 0, waiting: true, exhausted: true, index: 4, offline: false });
+    const online = status({
+      ahead: 0,
+      waiting: true,
+      exhausted: true,
+      index: 4,
+      offline: false,
+    });
     ok("在线源耗尽时不提「缓存」（会误导）", !online.includes("缓存"), online);
 
-    const stuck = status({ ahead: 0, waiting: true, exhausted: false, index: 2, offline: false });
+    const stuck = status({
+      ahead: 0,
+      waiting: true,
+      exhausted: false,
+      index: 2,
+      offline: false,
+    });
     ok("只是拿不到时才说「卡住」", stuck.includes("卡住"), stuck);
     ok("并给出可行动项（检查网络）", stuck.includes("网络"), stuck);
   }
 
   console.log("── 暂停优先于其它状态 ──");
   {
-    const t = status({ ahead: 0, waiting: true, exhausted: true, paused: true, index: 9 });
-    ok("暂停时只说暂停", t.includes("已暂停") && !t.includes("卡住") && !t.includes("刷完"), t);
+    const t = status({
+      ahead: 0,
+      waiting: true,
+      exhausted: true,
+      paused: true,
+      index: 9,
+    });
+    ok(
+      "暂停时只说暂停",
+      t.includes("已暂停") && !t.includes("卡住") && !t.includes("刷完"),
+      t,
+    );
   }
 
   console.log("── 穷举布尔组合：任何输入都不能产出空话或串出 undefined/NaN ──");
@@ -120,7 +155,16 @@ function main() {
                   offline,
                 });
                 if (!bad && (!t || t.trim() === "")) {
-                  bad = "空字符串 ← " + JSON.stringify({ waiting, exhausted, paused, offline, ahead, index });
+                  bad =
+                    "空字符串 ← " +
+                    JSON.stringify({
+                      waiting,
+                      exhausted,
+                      paused,
+                      offline,
+                      ahead,
+                      index,
+                    });
                 }
                 if (!bad && (t.includes("undefined") || t.includes("NaN"))) {
                   bad = "串出了 " + t;
@@ -140,9 +184,7 @@ function main() {
     console.error(`✗ ${failures.length} 项失败`);
     process.exit(1);
   }
-  console.log(
-    "✓ 「缓冲空 ≠ 卡住」这个区分、以及每种状态的可行动措辞 全部锁住",
-  );
+  console.log("✓ 「缓冲空 ≠ 卡住」这个区分、以及每种状态的可行动措辞 全部锁住");
 }
 
 main();
