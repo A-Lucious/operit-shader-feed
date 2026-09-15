@@ -34,6 +34,7 @@ interface ToolPkgNavigationEntryRegistration {
 interface ToolPkgApi {
  registerUiRoute(definition: ToolPkgUiRouteRegistration): void;
  registerNavigationEntry(definition: ToolPkgNavigationEntryRegistration): void;
+ registerXmlRenderPlugin(definition: ToolPkgXmlRenderRegistration): void;
  /**
   * 把 manifest.resources 里声明的资源释放到宿主临时目录，返回**落盘后的绝对路径**。
   * 注意：返回的是路径字符串，不是文件内容。
@@ -43,6 +44,57 @@ interface ToolPkgApi {
   outputFileName?: string,
   internal?: boolean,
  ): Promise<string>;
+}
+
+// --------------------------------------------------------------- XML 渲染钩子
+//
+// 机制：AI 在聊天回复里写出自定义 XML 标签 → 我们注册的钩子把它换成一块活着的界面。
+// 形状来自官方示例 `examples/plan_mode/src/plugin/plantodo-xml-render-plugin.ts`，
+// 以及 `examples/types/toolpkg.d.ts` 里的 XmlRenderPluginRegistration / XmlRenderHookObjectResult。
+
+interface ToolPkgXmlRenderPayload {
+ /** 标签内部的原文。实体可能已被宿主解码也可能没有，所以两种都处理。 */
+ xmlContent?: string;
+ tagName?: string;
+}
+
+interface ToolPkgXmlRenderEvent {
+ eventPayload: ToolPkgXmlRenderPayload;
+}
+
+interface ToolPkgXmlRenderDsl {
+ screen: ComposeDslScreen;
+ /**
+  * 下发给 screen 的初始状态。screen 里用 `ctx.useState(key, "")` 就能读到同名的值
+  * （见官方示例 `examples/plan_mode/src/ui/plantodo/index.ui.ts` 的 `ctx.useState("xmlContent", "")`）。
+  */
+ state?: Record<string, unknown>;
+ memo?: Record<string, unknown>;
+ moduleSpec?: Record<string, unknown>;
+}
+
+interface ToolPkgXmlRenderResult {
+ handled?: boolean;
+ /**
+  * 直接换成纯文本。用于「这块渲染不了，原因是…」这类**要让 AI 也能在对话里看到**的情况 ——
+  * 只渲染一个错误界面的话，AI 是看不到自己错在哪的。
+  */
+ text?: string;
+ content?: string;
+ composeDsl?: ToolPkgXmlRenderDsl;
+}
+
+type ToolPkgXmlRenderReturn =
+ | ToolPkgXmlRenderResult
+ | string
+ | null
+ | undefined
+ | Promise<ToolPkgXmlRenderResult | string | null | undefined>;
+
+interface ToolPkgXmlRenderRegistration {
+ id: string;
+ tag: string;
+ function: (event: ToolPkgXmlRenderEvent) => ToolPkgXmlRenderReturn;
 }
 
 declare const ToolPkg: ToolPkgApi;

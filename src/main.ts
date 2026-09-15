@@ -1,4 +1,5 @@
 import feedScreen from "./ui/feed/index.ui.js";
+import { SHADER_XML_RENDER_REGISTRATION } from "./plugin/chat-xml-render.js";
 
 /**
  * 侧边栏路由。它会出现在市场入口和 `toolpkg:` 引用里，改它等于换入口，别随手改。
@@ -33,6 +34,10 @@ export function registerToolPkg(): boolean {
     icon: Icons.SportsEsports,
     order: 150,
   });
+
+  // 聊天内实时渲染：AI 写出 <shader>…</shader> 时，把它换成一个活着的画面。
+  // 注册形状与标签名集中在 chat-xml-render.ts，避免标签名与处理函数各改一处。
+  ToolPkg.registerXmlRenderPlugin(SHADER_XML_RENDER_REGISTRATION);
 
   return true;
 }

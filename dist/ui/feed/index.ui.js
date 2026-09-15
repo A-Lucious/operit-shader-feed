@@ -21,26 +21,7 @@ const parse_js_1 = require("../../feed/parse.js");
 const selftest_js_1 = require("../../feed/selftest.js");
 const store_crawler_js_1 = require("../../feed/store-crawler.js");
 const feed_js_1 = require("../../feed/feed.js");
-const VIRTUAL_HOST = "https://shaderfeed.local";
-const RUNNER_PAGE = {
-    path: "/runner.html",
-    mime: "text/html",
-    resourceKey: "runner_html",
-    fileName: "runner.html",
-};
-const RUNNER_SCRIPT = {
-    path: "/runner.js",
-    mime: "application/javascript",
-    resourceKey: "runner_js",
-    fileName: "runner.js",
-};
-const PROBE_PAGE = {
-    path: "/probe.html",
-    mime: "text/html",
-    resourceKey: "probe_html",
-    fileName: "probe.html",
-};
-const HOST_INTERFACE_NAME = "ShaderHost";
+const runner_resources_js_1 = require("../shared/runner-resources.js");
 /**
  * P0 内置 demo shader：GLSL1、无通道，只验证 deck 的渲染回路能跑通。
  * 形状必须匹配 deck 的 assemble()：`renderpass[]` + `type: "image"` + `mainImage()`。
@@ -106,30 +87,6 @@ function hostLog(message) {
     if (logger && typeof logger.log === "function") {
         logger.log(message);
     }
-}
-/** 把虚拟域 URL 归一成 pathname；不是本虚拟域则返回 null。 */
-function resolvePathname(url) {
-    const value = String(url || "").trim();
-    if (!value.startsWith(VIRTUAL_HOST)) {
-        return null;
-    }
-    const suffix = value.slice(VIRTUAL_HOST.length) || "/";
-    const withoutHash = suffix.split("#", 1)[0] || "/";
-    const withoutQuery = withoutHash.split("?", 1)[0] || "/";
-    return withoutQuery.startsWith("/") ? withoutQuery : "/" + withoutQuery;
-}
-function buildFileResponse(mime, filePath) {
-    return {
-        action: "respond",
-        response: {
-            mimeType: mime,
-            encoding: "UTF-8",
-            statusCode: 200,
-            reasonPhrase: "OK",
-            headers: { "Cache-Control": "no-store" },
-            filePath,
-        },
-    };
 }
 function Screen(ctx) {
     const { UI } = ctx;
@@ -280,7 +237,7 @@ function Screen(ctx) {
         }
     }
     function registerHostInterface() {
-        controller.removeJavascriptInterface(HOST_INTERFACE_NAME);
+        controller.removeJavascriptInterface(runner_resources_js_1.HOST_INTERFACE_NAME);
         const host = {
             // deck 脚本就绪后主动回调，此时 __runnerLoad 已经定义好了。
             ready: () => {
@@ -305,7 +262,7 @@ function Screen(ctx) {
                 return true;
             },
         };
-        controller.addJavascriptInterface(HOST_INTERFACE_NAME, host);
+        controller.addJavascriptInterface(runner_resources_js_1.HOST_INTERFACE_NAME, host);
     }
     async function boot() {
         if (initialized) {
@@ -313,22 +270,15 @@ function Screen(ctx) {
         }
         setInitialized(true);
         try {
-            const [runnerHtml, runnerJs, probeHtml] = await Promise.all([
-                ToolPkg.readResource(RUNNER_PAGE.resourceKey, RUNNER_PAGE.fileName),
-                ToolPkg.readResource(RUNNER_SCRIPT.resourceKey, RUNNER_SCRIPT.fileName),
-                ToolPkg.readResource(PROBE_PAGE.resourceKey, PROBE_PAGE.fileName),
-            ]);
-            const runnerHtmlPath = String(runnerHtml || "").trim();
-            const runnerJsPath = String(runnerJs || "").trim();
-            const probeHtmlPath = String(probeHtml || "").trim();
-            if (!runnerHtmlPath || !runnerJsPath || !probeHtmlPath) {
+            const released = await (0, runner_resources_js_1.releaseRunnerResources)();
+            if (!released.runner || !released.script || !released.probe) {
                 setPageError("webview 资源没有完整装载。");
                 setStatusText("资源装载失败");
                 return;
             }
-            setRunnerPath(runnerHtmlPath);
-            setRunnerScriptPath(runnerJsPath);
-            setProbePath(probeHtmlPath);
+            setRunnerPath(released.runner);
+            setRunnerScriptPath(released.script);
+            setProbePath(released.probe);
             registerHostInterface();
             setResourcesReady(true);
             setStatusText("资源就绪，等待页面握手…");
@@ -348,9 +298,9 @@ function Screen(ctx) {
             return crawl_probe_js_1.SHADERTOY_PROBE_URL;
         }
         if (next === "runner") {
-            return VIRTUAL_HOST + RUNNER_PAGE.path;
+            return runner_resources_js_1.VIRTUAL_HOST + runner_resources_js_1.RUNNER_PAGE.path;
         }
-        return VIRTUAL_HOST + PROBE_PAGE.path;
+        return runner_resources_js_1.VIRTUAL_HOST + runner_resources_js_1.PROBE_PAGE.path;
     }
     function pageLabelFor(next) {
         return PAGE_META[next].label;
@@ -495,24 +445,16 @@ function Screen(ctx) {
         }
     }
     function handleResourceRequest(request) {
-        const pathname = resolvePathname(request.url);
-        if (pathname === null) {
-            // 虚拟域之外的请求不属于本页资源，交给 WebView 自行处理。
-            return { action: "allow" };
-        }
-        if (pathname === RUNNER_PAGE.path) {
-            return buildFileResponse(RUNNER_PAGE.mime, runnerPath);
-        }
-        if (pathname === RUNNER_SCRIPT.path) {
-            return buildFileResponse(RUNNER_SCRIPT.mime, runnerScriptPath);
-        }
-        if (pathname === PROBE_PAGE.path) {
-            return buildFileResponse(PROBE_PAGE.mime, probePath);
-        }
-        return { action: "block" };
+        // 拦截逻辑与聊天内渲染共用一份实现（src/ui/shared/runner-resources.ts），
+        // 否则两处各写一份，改一处忘另一处的表现会是「某个界面白屏」。
+        return (0, runner_resources_js_1.makeResourceHandler)({
+            runner: runnerPath,
+            script: runnerScriptPath,
+            probe: probePath,
+        })(request);
     }
     function handleNavigation(request) {
-        if (resolvePathname(request.url) !== null) {
+        if ((0, runner_resources_js_1.resolvePathname)(request.url) !== null) {
             return { action: "allow" };
         }
         // 契约探测必须在 shadertoy.com 的 origin 里跑（同源才能带 cf_clearance），
