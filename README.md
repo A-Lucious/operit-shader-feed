@@ -58,8 +58,15 @@ Operit 侧边栏插件：把 [Shadertoy](https://www.shadertoy.com/) 上别人�
 | 结构性错误：漏写 `mainImage`、写错 `#version`、pass 形状不对 | **真正的 GLSL 编译错误** |
 
 结构性错误会作为**纯文本**返回（因为 AI 看不到界面，错误必须落在对话记录里它才能自己修）；
-真实编译错误只显示在渲染框的状态条上，需用户转述。可能的解法在 `ComposeDslContext` 的
-`getEnv`/`setEnv` 上（跨运行时键值通道），但那需要在真机上做一次实验才能确认。
+真实编译错误只显示在渲染框的状态条上，需用户转述。**解法已经明确：`ToolPkg.ipc`**（官方 `TOOLPKG_FORMAT_GUIDE.md`「跨上下文共享状态」一节写了完整语义）：
+
+- 界面上下文（`ui`）调 `ToolPkg.ipc.call(channel, payload)` 时，**默认目标就是本包的 `main`**
+  —— 不需要 `targetContextKey`（只有显式指定 `ui`/`provider`/`sandbox` 时才需要）
+- `main` 用 `ToolPkg.ipc.on(channel, handler)` 收；工具（`sandbox`）同样可以 `ipc.call` 到 `main`
+- 于是链路是：聊天框里的 WebView 编译失败 → UI `ipc.call` 把编译器报错**原文**交给 `main`
+  → AI 通过一个注册的工具读到它 → 自己修。**这条路不需要设备实验**
+- 剩下的实现细节只有一个：编译是异步的，AI 可能先于编译完成就来读 —— 工具应当回
+  「还没编译完」让它稍后再读（宿主有 `setTimeout`，也可以等一下）
 
 ### 缓存位置与清理
 
@@ -130,6 +137,11 @@ resources/webview/          runner.html（含 touch-action:none）、probe.html
 | XML 渲染结果 | `{ handled, composeDsl: { screen, state, memo } }`；`screen` 必须是**模块函数**（宿主给导出贴 `__operit_toolpkg_module_path` 标记，传字符串路径会直接抛错） |
 | prompt 钩子 | 返回 `{ systemPrompt }`，阶段名 `after_compose_system_prompt`，与 `examples/thinking_guidance` 同形 |
 | 聊天框的资源 | 与侧边栏共用 `runner-resources.ts`，**不依赖侧边栏路由** —— 所以聊天里也能拿到 `runner.js` |
+| `ctx.*` 与 `UI.*` | 成员名与签名逐个对过：`useState(key, initial)` 返回 `[值, setter]`、`createWebViewController(key)`、6 个工厂都存在、`WebViewProps` 里的 `controller` 是**可选字段**（不是构造参数） |
+| `evaluateJavascript` | `evaluateJavascript<T>(script): Promise<T \| null \| undefined>` —— **可空**。4 处调用都包了 `Promise.resolve(...)` 并接了错误处理，因为 G1「宿主会不会 await 页面里的 Promise」还没定论 |
+| 资源拦截的应答 | 必须返回 `{ action: "respond", response: { …, filePath } }`。`filePath` 这个变体正是「`readResource` 只给落盘路径、不给内容」的官方答案 —— 也就是本插件的地基 |
+| `Tools.Files.read` | 官方只有 `read(path)` 与 `read({ path, environment })` —— **没有** `(path, env)` 位置参数重载。原先写成位置参数，环境会被静默丢弃（默认恰好是 `android`，所以没出事，但改成 `linux` 就会读错地方）。已修：实现、声明与官方对齐，并加了「调用形状」断言 |
+| 宿主定时器 | **有** `setTimeout` / `setInterval` / `clearTimeout` / `queueMicrotask`（`quickjs-runtime.d.ts`）—— 所以缓存面板里那一项设备问题已经有答案了 |
 
 这一节的价值在于：这些错误**要装包后才会暴露，而且表现为「没反应」**（不是报错），
 定位成本高，返工要再走一次安装流程。
@@ -138,8 +150,9 @@ resources/webview/          runner.html（含 touch-action:none）、probe.html
 
 - **`waiting()` 表示"真的卡住"，不是"缓冲为空"**。当前这条还在正常播、只是队列空了不算卡住。
   UI 要分开处理，否则用户会在最需要耐心的时刻看到吓人的提示。
-- **宿主里没有定时器**。feed 的时钟由页面每秒一次的 stats 上报驱动，所以 30 秒逻辑
-  能离线真测，也不用赌 QuickJS 有没有 `setTimeout`。
+- **feed 的时钟由页面每秒一次的 stats 上报驱动**，而不是宿主定时器。宿主其实**有**
+  `setTimeout`/`setInterval`（`quickjs-runtime.d.ts` 里是全局声明），所以这不是「没有才这么办」：
+  页面驱动的时钟跟着渲染循环走、不额外起一个定时器、而且能离线真测（注入时间戳跑 30 秒逻辑）。
 - **不改用 `.at(-1)`**。它是 ES2022，宿主 QuickJS 上不一定有（lint 会建议这么改，那是错的）。
 - **REST 的 `waiting` / 参数钳制 / 「多 pass 不丢弃」都有断言**。特别是多 pass：
   丢在解析层，D3 的单 pass 占比就永远统计不出来了。

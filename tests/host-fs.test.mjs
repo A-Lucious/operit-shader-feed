@@ -65,9 +65,17 @@ let infoImpl = async () => ({
 
 globalThis.Tools = {
   Files: {
-    async read(path, env) {
-      calls.push(["read", path, env]);
-      return readImpl(path, env);
+    // 官方签名：read(path) 或 read({ path, environment }) —— 照着官方写这个桩，
+    // 这样「带环境时传了位置参数」会直接在测试里被抓到，而不是等到真机上读错地方。
+    // calls 里第 4 位记的是「多传了几个位置参数」，正常必须是 0。
+    async read(pathOrOptions, ...rest) {
+      if (typeof pathOrOptions === "string") {
+        calls.push(["read", pathOrOptions, undefined, rest.length]);
+        return readImpl(pathOrOptions, undefined);
+      }
+      const opts = pathOrOptions || {};
+      calls.push(["read", opts.path, opts.environment, rest.length]);
+      return readImpl(opts.path, opts.environment);
     },
     async write(path, content, append, env) {
       calls.push(["write", path, content, append, env]);
@@ -193,6 +201,14 @@ async function main() {
       await fs.readText("/r/index.json"),
       null,
     );
+
+    // 官方没有 (path, env) 这种重载：带环境时必须走 read({ path, environment })。
+    // 写成位置参数的话环境会被静默丢弃 —— 今天恰好无害（默认就是 android），
+    // 但「以后改成 linux 会读错地方」是完全无声的。这条断言就是为此。
+    const readCall = calls.filter((c) => c[0] === "read").pop() || [];
+    eq("带环境时走 options 形式：path 正确", readCall[1], "/r/index.json");
+    eq("带环境时走 options 形式：environment 正确", readCall[2], "android");
+    eq("没有多传位置参数（多传会被静默忽略）", readCall[3], 0, JSON.stringify(readCall));
 
     readImpl = async (p) => ({ path: p, content: '{"shaders":{}}', size: 15 });
     calls.length = 0;

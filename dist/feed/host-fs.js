@@ -38,7 +38,10 @@ function createHostFs() {
     return {
         async readText(path) {
             try {
-                const file = await Tools.Files.read(path, ENV);
+                // 官方签名是 read(path) 或 read({ path, environment }) —— **没有** (path, env) 这种重载。
+                // 之前写成 read(path, ENV) 时环境参数会被静默丢弃：今天恰好无害（默认就是 android），
+                // 但它意味着「以后改成 linux 会读到错的地方」是完全无声的。
+                const file = await Tools.Files.read({ path, environment: ENV });
                 return file ? file.content : null;
             }
             catch (err) {
@@ -148,7 +151,7 @@ async function verifyRootWritable(root) {
         };
     }
     try {
-        const back = await Tools.Files.read(probe, ENV);
+        const back = await Tools.Files.read({ path: probe, environment: ENV });
         if (!back || back.content !== "ok") {
             return { ok: false, message: "缓存目录写入后读回不一致：" + root };
         }

@@ -328,7 +328,21 @@ interface ToolsFilesApi {
   path: string,
   environment?: FileEnvironment,
  ): Promise<DirectoryListingData>;
- read(path: string, environment?: FileEnvironment): Promise<FileContentData>;
+ /**
+  * 读文本。不存在会抛（调用方负责映射成 null）。
+  * 官方只有这个**单参**重载。
+  */
+ read(path: string): Promise<FileContentData>;
+ /**
+  * 需要指定执行环境时必须用 options 形式 —— 官方**没有** (path, env) 这种重载。
+  * 写成 read(path, env) 能通过类型检查（如果声明写错了的话），但环境参数会被静默丢弃。
+  */
+ read(options: {
+  path: string;
+  environment?: FileEnvironment;
+  intent?: string;
+  direct_image?: boolean;
+ }): Promise<FileContentData>;
  readBinary(
   path: string,
   environment?: FileEnvironment,
