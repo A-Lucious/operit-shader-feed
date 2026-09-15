@@ -94,9 +94,7 @@ function main() {
   const next = renderModule(html);
   const prev = existsSync(OUT) ? readFileSync(OUT, "utf8") : "";
   if (prev === next) {
-    console.log(
-      `✓ 自包含 HTML 已是最新（${html.length} 字符，deck 已内联）`,
-    );
+    console.log(`✓ 自包含 HTML 已是最新（${html.length} 字符，deck 已内联）`);
     return;
   }
   writeFileSync(OUT, next);

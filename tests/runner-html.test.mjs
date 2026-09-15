@@ -77,30 +77,40 @@ function main() {
     const external =
       withoutComments.match(/(src|href)\s*=\s*["'](?!data:)[^"']+["']/gi) || [];
     eq("没有任何 src/href 外链", external.length, 0, external.join(", "));
-    ok("没有 http(s) 外链残留", !/["'(]https?:\/\//.test(withoutComments.replace(/baseUrl[^,]*/g, "")), "");
+    ok(
+      "没有 http(s) 外链残留",
+      !/["'(]https?:\/\//.test(withoutComments.replace(/baseUrl[^,]*/g, "")),
+      "",
+    );
   }
 
   console.log("── 页面结构：deck 与 DOM 都得在 ──");
-    ok("有 #gl 画布", html.includes('id="gl"'), "");
-    ok("有 #status 状态条（真机上编译报错只能靠它看）", html.includes('id="status"'), "");
-    ok("deck 的入口 API 在（__runnerLoad）", html.includes("__runnerLoad"), "");
-    ok("deck 暴露了 ShaderDeck 版本信息", html.includes("ShaderDeck"), "");
-    // 危险的不是「提到了 runner.js」（deck 的注释里解释历史就会提到），
-    // 而是代码里真的去引用它 —— 那才会又变成一次网络/文件系统依赖。
-    ok(
-      "代码里没有 src=\"runner.js\" 这类引用",
-      !/(src|href)\s*=\s*["']runner\.js["']/.test(withoutComments),
-      "",
-    );
-    // 内联进 <script> 时唯一能毁掉页面的东西是提前闭合。
-    // 所以不去数 <script（注释与字串里都可能有），只断言结束标签恰好出现一次。
-    eq(
-      "script 结束标签恰好一次（没有提前闭合）",
-      (withoutComments.match(/<\/script/gi) || []).length,
-      1,
-    );
+  ok("有 #gl 画布", html.includes('id="gl"'), "");
+  ok(
+    "有 #status 状态条（真机上编译报错只能靠它看）",
+    html.includes('id="status"'),
+    "",
+  );
+  ok("deck 的入口 API 在（__runnerLoad）", html.includes("__runnerLoad"), "");
+  ok("deck 暴露了 ShaderDeck 版本信息", html.includes("ShaderDeck"), "");
+  // 危险的不是「提到了 runner.js」（deck 的注释里解释历史就会提到），
+  // 而是代码里真的去引用它 —— 那才会又变成一次网络/文件系统依赖。
+  ok(
+    '代码里没有 src="runner.js" 这类引用',
+    !/(src|href)\s*=\s*["']runner\.js["']/.test(withoutComments),
+    "",
+  );
+  // 内联进 <script> 时唯一能毁掉页面的东西是提前闭合。
+  // 所以不去数 <script（注释与字串里都可能有），只断言结束标签恰好出现一次。
+  eq(
+    "script 结束标签恰好一次（没有提前闭合）",
+    (withoutComments.match(/<\/script/gi) || []).length,
+    1,
+  );
 
-  console.log("── bridge 名字：写错一个字就是「永远不握手」，而那只在真机暴露 ──");
+  console.log(
+    "── bridge 名字：写错一个字就是「永远不握手」，而那只在真机暴露 ──",
+  );
   {
     eq("界面侧常量就是 ShaderHost", HOST_INTERFACE_NAME, "ShaderHost");
     ok(
@@ -121,11 +131,20 @@ function main() {
       chatUi.includes("HOST_INTERFACE_NAME"),
       "",
     );
-    ok("聊天界面调用 addJavascriptInterface", chatUi.includes("addJavascriptInterface"), "");
-    ok("聊天界面用 html 属性而不是 url（不走网络/拦截）", chatUi.includes(".html(") || chatUi.includes("html:"), "");
+    ok(
+      "聊天界面调用 addJavascriptInterface",
+      chatUi.includes("addJavascriptInterface"),
+      "",
+    );
+    ok(
+      "聊天界面用 html 属性而不是 url（不走网络/拦截）",
+      chatUi.includes(".html(") || chatUi.includes("html:"),
+      "",
+    );
     ok(
       "聊天界面不再引用被删的虚拟域拦截",
-      !chatUi.includes("onInterceptRequest") && !chatUi.includes("runner-resources"),
+      !chatUi.includes("onInterceptRequest") &&
+        !chatUi.includes("runner-resources"),
       "",
     );
   }
@@ -135,9 +154,7 @@ function main() {
     console.error(`✗ ${failures.length} 项失败`);
     process.exit(1);
   }
-  console.log(
-    "✓ 自包含性（无外链）+ 页面结构 + bridge 名字三处一致 全部锁住",
-  );
+  console.log("✓ 自包含性（无外链）+ 页面结构 + bridge 名字三处一致 全部锁住");
 }
 
 main();

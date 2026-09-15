@@ -3,8 +3,8 @@ import { createCompileIpcHandlers } from "./plugin/compile-ipc.js";
 import { createCompileLedger } from "./plugin/compile-ledger.js";
 import { SYSTEM_PROMPT_REGISTRATION } from "./plugin/system-prompt.js";
 import {
-  IPC_COMPILE_READ,
-  IPC_COMPILE_WRITE,
+ IPC_COMPILE_READ,
+ IPC_COMPILE_WRITE,
 } from "./shared/chat-shader-state.js";
 
 /**
@@ -25,23 +25,23 @@ const compileIpc = createCompileIpcHandlers(createCompileLedger());
  * 见 README「为什么只剩聊天渲染」。
  */
 export function registerToolPkg(): boolean {
-  // 聊天内实时渲染：AI 写出 <shader>…</shader> 时，把它换成一个活着的画面。
-  // 注册形状与标签名集中在 chat-xml-render.ts，避免标签名与处理函数各改一处。
-  ToolPkg.registerXmlRenderPlugin(SHADER_XML_RENDER_REGISTRATION);
+ // 聊天内实时渲染：AI 写出 <shader>…</shader> 时，把它换成一个活着的画面。
+ // 注册形状与标签名集中在 chat-xml-render.ts，避免标签名与处理函数各改一处。
+ ToolPkg.registerXmlRenderPlugin(SHADER_XML_RENDER_REGISTRATION);
 
-  // 让 AI 知道 <shader> 标签存在，并知道写完要回来读编译结果 —— 否则这个能力没人发现。
-  ToolPkg.registerSystemPromptComposeHook(SYSTEM_PROMPT_REGISTRATION);
+ // 让 AI 知道 <shader> 标签存在，并知道写完要回来读编译结果 —— 否则这个能力没人发现。
+ ToolPkg.registerSystemPromptComposeHook(SYSTEM_PROMPT_REGISTRATION);
 
-  // 编译结果的两个通道：界面写、工具读。
-  //
-  // 放在 registerToolPkg() 里而不是模块顶层（官方文档的 ipc 示例是放顶层的）：
-  // 顶层注册的代价是「万一 ToolPkg 还没就绪就整个包加载失败」，而这里必定就绪；
-  // 而且注册期的禁止清单里只有 readResource / wasm.call 这类**操作**，ipc.on 属于声明。
-  ToolPkg.ipc.on(IPC_COMPILE_WRITE, (payload: unknown): boolean => {
-    compileIpc.write(payload);
-    return true;
-  });
-  ToolPkg.ipc.on(IPC_COMPILE_READ, (): string => compileIpc.read());
-
+ // 编译结果的两个通道：界面写、工具读。
+ //
+ // 放在 registerToolPkg() 里而不是模块顶层（官方文档的 ipc 示例是放顶层的）：
+ // 顶层注册的代价是「万一 ToolPkg 还没就绪就整个包加载失败」，而这里必定就绪；
+ // 而且注册期的禁止清单里只有 readResource / wasm.call 这类**操作**，ipc.on 属于声明。
+ ToolPkg.ipc.on(IPC_COMPILE_WRITE, (payload: unknown): boolean => {
+  compileIpc.write(payload);
   return true;
+ });
+ ToolPkg.ipc.on(IPC_COMPILE_READ, (): string => compileIpc.read());
+
+ return true;
 }

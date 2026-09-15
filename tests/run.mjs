@@ -541,9 +541,7 @@ function buildSoakPage() {
 function main() {
   mkdirSync(TMP, { recursive: true });
   copyFileSync(DECK_SRC, join(TMP, "runner.js"));
-  console.log(
-    "→ 已拷 deck 到 .tmp/runner.js",
-  );
+  console.log("→ 已拷 deck 到 .tmp/runner.js");
 
   const chrome = findChrome();
 
