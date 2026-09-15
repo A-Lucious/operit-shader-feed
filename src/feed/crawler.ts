@@ -50,6 +50,8 @@ export interface CrawlOptions {
     record?: ShaderRecord;
     error?: string;
   };
+  /** 每条记录解析成功后调用；异常不得阻塞队列。 */
+  onRecord?: (record: ShaderRecord) => void | Promise<void>;
 }
 
 export interface CrawlStats {
@@ -85,6 +87,7 @@ export function createCrawler(
   const concurrency = Math.max(1, options.detailConcurrency ?? 3);
   const maxAttempts = Math.max(1, options.maxAttempts ?? 2);
   const parse = options.parse ?? parseShader;
+  const onRecord = options.onRecord;
 
   /** 已解析、可立即播放。 */
   const ready: ShaderRecord[] = [];
@@ -188,6 +191,13 @@ export function createCrawler(
         }
         const record = parsed.record;
         ready.push(record);
+        if (onRecord) {
+          try {
+            await onRecord(record);
+          } catch {
+            // 持久化失败不应丢掉已解析的可播记录。
+          }
+        }
         stats.delivered++;
         if (isSinglePassRenderable(record)) {
           stats.singlePass++;

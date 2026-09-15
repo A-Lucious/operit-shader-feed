@@ -98,7 +98,12 @@ function planChannelDispatch(channels, lookup, virtualHost) {
             });
             continue;
         }
-        out.push({ channel: ch.channel, ctype: ch.ctype, src: ch.src, cached: false });
+        out.push({
+            channel: ch.channel,
+            ctype: ch.ctype,
+            src: ch.src,
+            cached: false,
+        });
     }
     return out;
 }

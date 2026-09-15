@@ -6,6 +6,8 @@
   "description": "Operit ToolPkg: live Shadertoy shader feed for the main sidebar.",
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node tools/check.mjs",
+    "verify": "node tools/check.mjs"
   }
 }

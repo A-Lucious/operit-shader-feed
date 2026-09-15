@@ -126,10 +126,17 @@ export function buildFetchScript(
 /** 默认配方：站点自己的内部接口（待契约探测确认）。 */
 export function defaultRecipe(): TransportRecipe {
   return {
-    list: () => ({
+    list: (cursor, limit) => ({
       path: "/shadertoy",
       method: "POST",
-      body: "nt=0&nl=12&np=0",
+      // Shadertoy's legacy endpoint uses nl for page size and np for page offset.
+      // Keep the cursor as an offset when the server returns a numeric cursor;
+      // an empty cursor starts at the newest page.
+      body:
+        "nt=0&nl=" +
+        encodeURIComponent(String(Math.max(1, limit))) +
+        "&np=" +
+        encodeURIComponent(/^[0-9]+$/.test(cursor) ? cursor : "0"),
       contentType: "application/x-www-form-urlencoded",
     }),
     detail: (id) => ({
@@ -187,6 +194,7 @@ export function createSessionTransport(
 
     return new Promise((resolve) => {
       let settled = false;
+      let timeoutHandle: HostTimerHandle | undefined;
       function settle(value: {
         ok: boolean;
         text: string;
@@ -195,6 +203,10 @@ export function createSessionTransport(
         if (settled) return;
         settled = true;
         pending.delete(requestId);
+        if (timeoutHandle !== undefined && typeof clearTimeout === "function") {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = undefined;
+        }
         resolve(value);
       }
 
@@ -208,13 +220,21 @@ export function createSessionTransport(
 
       // 超时兜底。没有它，一次不回头的 bridge 会让整个爬虫永久停摆。
       if (typeof setTimeout === "function") {
-        setTimeout(() => {
+        timeoutHandle = setTimeout(() => {
           settle({
             ok: false,
             text: "",
             error: "请求超时（" + timeoutMs + "ms）: " + spec.path,
           });
         }, timeoutMs);
+      } else {
+        // QuickJS builds without timers must fail closed; leaving the promise pending
+        // would permanently consume one crawler slot.
+        settle({
+          ok: false,
+          text: "",
+          error: "宿主未提供 setTimeout，无法等待页面请求结果",
+        });
       }
 
       try {

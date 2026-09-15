@@ -33,6 +33,11 @@ import { CANNED, runSelfTest } from "../../feed/selftest.js";
 import { createStoreCrawler } from "../../feed/store-crawler.js";
 import { createFeed, type Feed } from "../../feed/feed.js";
 import { describeFeedStatus } from "../../feed/feed-status.js";
+import { createCrawler, type Crawler } from "../../feed/crawler.js";
+import {
+  createSessionTransport,
+  defaultRecipe,
+} from "../../feed/transport.js";
 
 import {
   HOST_INTERFACE_NAME,
@@ -154,13 +159,63 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
   // offline / lastStatus 也放这里：它们不参与渲染，只是用来避免每秒都 setState 一次。
   const [feedRef] = ctx.useState<{
     feed: Feed | null;
+    crawler: Crawler | null;
+    transport: ReturnType<typeof createSessionTransport> | null;
     offline: boolean;
     lastStatus: string;
   }>("feedRef", {
     feed: null,
+    crawler: null,
+    transport: null,
     offline: true,
     lastStatus: "",
   });
+
+  const crawlerController = ctx.createWebViewController("shader_feed_crawler_webview");
+  const [crawlerRef] = ctx.useState<{ ready: boolean; started: boolean; resultHandlers: Map<string, (id: string, ok: boolean, text: string) => void> }>(
+    "crawlerRef",
+    { ready: false, started: false, resultHandlers: new Map() },
+  );
+
+  function registerCrawlerHost(): void {
+    crawlerController.removeJavascriptInterface(HOST_INTERFACE_NAME);
+    crawlerController.addJavascriptInterface(HOST_INTERFACE_NAME, {
+      fetchResult: (...args: unknown[]) => {
+        const id = String(args[0] ?? "");
+        const ok = args[1] === true;
+        const text = String(args[2] ?? "");
+        const handler = crawlerRef.resultHandlers.get(id) || crawlerRef.resultHandlers.get("*");
+        if (handler) handler(id, ok, text);
+        return true;
+      },
+    });
+  }
+
+  function startLiveCrawler(): void {
+    if (crawlerRef.started || !crawlerRef.ready) return;
+    crawlerRef.started = true;
+    // The bridge callback is fan-out based: request ids are unique and one transport is used.
+    const transport = createSessionTransport({
+      inject: (script) => { void crawlerController.evaluateJavascript(script); },
+      onResult: (callback) => {
+        const listener = (id: string, ok: boolean, text: string) => callback(id, ok, text);
+        crawlerRef.resultHandlers.set("*", listener);
+        return () => crawlerRef.resultHandlers.delete("*");
+      },
+    }, defaultRecipe());
+    feedRef.transport = transport;
+    feedRef.crawler = createCrawler(transport, {
+      onRecord: async (record) => {
+        try {
+          const store = ensureStore();
+          await store.saveShader(record, isSinglePassRenderable(record));
+        } catch (error) {
+          hostLog("[ShaderFeed] 保存爬取记录失败: " + toErrorText(error));
+        }
+      },
+    });
+    void startFeedOrDemo();
+  }
 
   // 可变标记，不参与渲染：记录「本次页面加载是否已经下发过 demo」。
   // 用 useState 持有的对象当 ref，避免依赖 useRef 的运行时可用性。
@@ -203,15 +258,21 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
     try {
       const store = ensureStore();
       const cached = createStoreCrawler(store, { limit: 200 });
-      await cached.ensure(8);
-      if (cached.ahead() === 0) {
+      const source = feedRef.crawler || cached;
+      await source.ensure(8);
+      if (source.ahead() === 0 && source !== cached) {
+        // 网络不可用时仍然优先提供离线缓存。
+        await cached.ensure(8);
+      }
+      const playable = source.ahead() > 0 ? source : cached;
+      if (playable.ahead() === 0) {
         setStatusText(
           "缓存为空，先播内置示例。去「缓存」页点「灌入示例数据」就能离线刷 shader。",
         );
         sendDemoShader();
         return;
       }
-      const feed = createFeed(cached, {
+      const feed = createFeed(playable, {
         onAdvance: (tick) => {
           if (tick.current) {
             void sendShaderToRunner(tick.current, feed.timeOffsetSeconds());
@@ -220,7 +281,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
       });
       feedRef.feed = feed;
       // 这条通路就是离线缓存（实时爬虫还没接上），所以耗尽时的措辞按离线来。
-      feedRef.offline = true;
+      feedRef.offline = playable === cached;
       feedRef.lastStatus = "";
       const first = feed.start();
       if (first.current) {
@@ -383,6 +444,7 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
       setRunnerScriptPath(released.script);
       setProbePath(released.probe);
       registerHostInterface();
+      registerCrawlerHost();
       setResourcesReady(true);
       setStatusText("资源就绪，等待页面握手…");
       // 宿主能力先报一次：传输层的请求超时依赖 setTimeout，
@@ -756,12 +818,41 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
 
   const body: ComposeNode = target === "cache" ? cacheBody : webViewOrWaiting;
 
+  const crawlerWebView = UI.WebView({
+    key: "shader_feed_crawler_webview",
+    controller: crawlerController,
+    url: SHADERTOY_PROBE_URL,
+    height: 1,
+    fillMaxWidth: true,
+    javaScriptEnabled: true,
+    domStorageEnabled: true,
+    supportZoom: false,
+    onPageFinished: () => {
+      // Cloudflare also reports page-finished for the challenge document. Wait for
+      // the real page before creating the transport; otherwise every request is
+      // sent to the challenge HTML and the crawler burns through retries.
+      Promise.resolve(crawlerController.evaluateJavascript("document.title"))
+        .then((title) => {
+          const value = String(title ?? "").toLowerCase();
+          if (value.indexOf("just a moment") >= 0 || value.indexOf("attention required") >= 0) {
+            return;
+          }
+          crawlerRef.ready = true;
+          startLiveCrawler();
+        })
+        .catch(() => undefined);
+    },
+    onReceivedError: (event: unknown) => {
+      hostLog("[ShaderFeed] crawler page error: " + JSON.stringify(event));
+    },
+  });
+
   return UI.Column(
     {
       fillMaxSize: true,
       backgroundColor: colors.surface,
       onLoad: boot,
     },
-    [toolbar, statusBar, body],
+    [toolbar, statusBar, crawlerWebView, body],
   );
 }

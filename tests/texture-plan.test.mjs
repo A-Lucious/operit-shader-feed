@@ -77,18 +77,26 @@ const HOST = "https://shaderfeed.local";
 
 function main() {
   console.log("── 扩展名：必须经得起真实 URL ──");
-    eq("普通 png", extFromUrl("https://x.com/a/b.png"), "png");
-    eq("大写转小写", extFromUrl("https://x.com/a/B.PNG"), "png");
-    eq("带查询串（Shadertoy 常见）", extFromUrl("https://x.com/a/b.jpg?w=1&h=2"), "jpg");
-    eq("带锚点", extFromUrl("https://x.com/a/b.webp#frag"), "webp");
-    eq("多级扩展名取最后一段", extFromUrl("https://x.com/a.tar.gz"), "gz");
-    eq("没有扩展名", extFromUrl("https://x.com/media/abc123"), "");
-    eq("目录名里的点不算扩展名", extFromUrl("https://x.com/v1.2/media"), "");
-    eq("点开头（隐藏文件）不算", extFromUrl("https://x.com/.gitignore"), "");
-    eq("结尾就是点", extFromUrl("https://x.com/a.png."), "");
-    eq("扩展名过长不认（挡杂串）", extFromUrl("https://x.com/a.abcdefghij"), "");
-    eq("非字符串", extFromUrl(undefined), "");
-    eq("从落盘路径反推（台账里存的是路径）", extFromFile("/sdcard/x/textures/ab12cd.png"), "png");
+  eq("普通 png", extFromUrl("https://x.com/a/b.png"), "png");
+  eq("大写转小写", extFromUrl("https://x.com/a/B.PNG"), "png");
+  eq(
+    "带查询串（Shadertoy 常见）",
+    extFromUrl("https://x.com/a/b.jpg?w=1&h=2"),
+    "jpg",
+  );
+  eq("带锚点", extFromUrl("https://x.com/a/b.webp#frag"), "webp");
+  eq("多级扩展名取最后一段", extFromUrl("https://x.com/a.tar.gz"), "gz");
+  eq("没有扩展名", extFromUrl("https://x.com/media/abc123"), "");
+  eq("目录名里的点不算扩展名", extFromUrl("https://x.com/v1.2/media"), "");
+  eq("点开头（隐藏文件）不算", extFromUrl("https://x.com/.gitignore"), "");
+  eq("结尾就是点", extFromUrl("https://x.com/a.png."), "");
+  eq("扩展名过长不认（挡杂串）", extFromUrl("https://x.com/a.abcdefghij"), "");
+  eq("非字符串", extFromUrl(undefined), "");
+  eq(
+    "从落盘路径反推（台账里存的是路径）",
+    extFromFile("/sdcard/x/textures/ab12cd.png"),
+    "png",
+  );
 
   console.log("── 该下载哪些：只挑绝对 http 的图片通道，且按 URL 去重 ──");
   {
@@ -108,7 +116,9 @@ function main() {
     eq("第二张去掉了空白", wanted[1].url, "https://x.com/b.jpg?w=1");
     eq("带查询串也算出 jpg", wanted[1].ext, "jpg");
 
-    const noExt = planTextureDownloads([ch({ src: "https://x.com/media/abc" })]);
+    const noExt = planTextureDownloads([
+      ch({ src: "https://x.com/media/abc" }),
+    ]);
     eq("没扩展名时兜底 bin", noExt[0].ext, "bin");
 
     ok("空数组安全", planTextureDownloads([]).length === 0);
@@ -127,7 +137,9 @@ function main() {
 
   console.log("── 下发形态：缓存命中走虚拟域，没命中保留原 URL ──");
   {
-    const cached = { "https://x.com/noise.png": { hash: "ab12cd", ext: "png" } };
+    const cached = {
+      "https://x.com/noise.png": { hash: "ab12cd", ext: "png" },
+    };
     const lookup = (url) => cached[url] || null;
 
     const plans = planChannelDispatch(
@@ -140,9 +152,17 @@ function main() {
       HOST,
     );
     eq("三条都保留（不能因为不认识就丢通道）", plans.length, 3);
-    eq("命中改写成虚拟域", plans[0].src, "https://shaderfeed.local/tex/ab12cd.png");
+    eq(
+      "命中改写成虚拟域",
+      plans[0].src,
+      "https://shaderfeed.local/tex/ab12cd.png",
+    );
     eq("命中标记为 cached", plans[0].cached, true);
-    eq("未命中保留原 URL（在线回退）", plans[1].src, "https://x.com/missing.png");
+    eq(
+      "未命中保留原 URL（在线回退）",
+      plans[1].src,
+      "https://x.com/missing.png",
+    );
     eq("未命中标记为未缓存", plans[1].cached, false);
     eq("非图片通道也只保留原样", plans[2].src, "https://x.com/kb.png");
     eq("通道号不被改动", plans[1].channel, 1);
@@ -176,11 +196,7 @@ function main() {
       parseVirtualTexturePath("/tex/../../etc/passwd.png"),
       null,
     );
-    eq(
-      "带斜杠的 hash 必须挡住",
-      parseVirtualTexturePath("/tex/a/b.png"),
-      null,
-    );
+    eq("带斜杠的 hash 必须挡住", parseVirtualTexturePath("/tex/a/b.png"), null);
     eq(
       "超长 hash 挡住（防文件名滥用）",
       parseVirtualTexturePath("/tex/" + "a".repeat(65) + ".png"),

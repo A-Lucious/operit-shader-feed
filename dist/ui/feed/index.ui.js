@@ -22,6 +22,8 @@ const selftest_js_1 = require("../../feed/selftest.js");
 const store_crawler_js_1 = require("../../feed/store-crawler.js");
 const feed_js_1 = require("../../feed/feed.js");
 const feed_status_js_1 = require("../../feed/feed-status.js");
+const crawler_js_1 = require("../../feed/crawler.js");
+const transport_js_1 = require("../../feed/transport.js");
 const runner_resources_js_1 = require("../shared/runner-resources.js");
 /**
  * P0 内置 demo shader：GLSL1、无通道，只验证 deck 的渲染回路能跑通。
@@ -109,9 +111,54 @@ function Screen(ctx) {
     // offline / lastStatus 也放这里：它们不参与渲染，只是用来避免每秒都 setState 一次。
     const [feedRef] = ctx.useState("feedRef", {
         feed: null,
+        crawler: null,
+        transport: null,
         offline: true,
         lastStatus: "",
     });
+    const crawlerController = ctx.createWebViewController("shader_feed_crawler_webview");
+    const [crawlerRef] = ctx.useState("crawlerRef", { ready: false, started: false, resultHandlers: new Map() });
+    function registerCrawlerHost() {
+        crawlerController.removeJavascriptInterface(runner_resources_js_1.HOST_INTERFACE_NAME);
+        crawlerController.addJavascriptInterface(runner_resources_js_1.HOST_INTERFACE_NAME, {
+            fetchResult: (...args) => {
+                const id = String(args[0] ?? "");
+                const ok = args[1] === true;
+                const text = String(args[2] ?? "");
+                const handler = crawlerRef.resultHandlers.get(id) || crawlerRef.resultHandlers.get("*");
+                if (handler)
+                    handler(id, ok, text);
+                return true;
+            },
+        });
+    }
+    function startLiveCrawler() {
+        if (crawlerRef.started || !crawlerRef.ready)
+            return;
+        crawlerRef.started = true;
+        // The bridge callback is fan-out based: request ids are unique and one transport is used.
+        const transport = (0, transport_js_1.createSessionTransport)({
+            inject: (script) => { void crawlerController.evaluateJavascript(script); },
+            onResult: (callback) => {
+                const listener = (id, ok, text) => callback(id, ok, text);
+                crawlerRef.resultHandlers.set("*", listener);
+                return () => crawlerRef.resultHandlers.delete("*");
+            },
+        }, (0, transport_js_1.defaultRecipe)());
+        feedRef.transport = transport;
+        feedRef.crawler = (0, crawler_js_1.createCrawler)(transport, {
+            onRecord: async (record) => {
+                try {
+                    const store = ensureStore();
+                    await store.saveShader(record, (0, parse_js_1.isSinglePassRenderable)(record));
+                }
+                catch (error) {
+                    hostLog("[ShaderFeed] 保存爬取记录失败: " + toErrorText(error));
+                }
+            },
+        });
+        void startFeedOrDemo();
+    }
     // 可变标记，不参与渲染：记录「本次页面加载是否已经下发过 demo」。
     // 用 useState 持有的对象当 ref，避免依赖 useRef 的运行时可用性。
     const [flags] = ctx.useState("flags", { demoSent: false, playbackStarted: false });
@@ -144,13 +191,19 @@ function Screen(ctx) {
         try {
             const store = ensureStore();
             const cached = (0, store_crawler_js_1.createStoreCrawler)(store, { limit: 200 });
-            await cached.ensure(8);
-            if (cached.ahead() === 0) {
+            const source = feedRef.crawler || cached;
+            await source.ensure(8);
+            if (source.ahead() === 0 && source !== cached) {
+                // 网络不可用时仍然优先提供离线缓存。
+                await cached.ensure(8);
+            }
+            const playable = source.ahead() > 0 ? source : cached;
+            if (playable.ahead() === 0) {
                 setStatusText("缓存为空，先播内置示例。去「缓存」页点「灌入示例数据」就能离线刷 shader。");
                 sendDemoShader();
                 return;
             }
-            const feed = (0, feed_js_1.createFeed)(cached, {
+            const feed = (0, feed_js_1.createFeed)(playable, {
                 onAdvance: (tick) => {
                     if (tick.current) {
                         void sendShaderToRunner(tick.current, feed.timeOffsetSeconds());
@@ -159,7 +212,7 @@ function Screen(ctx) {
             });
             feedRef.feed = feed;
             // 这条通路就是离线缓存（实时爬虫还没接上），所以耗尽时的措辞按离线来。
-            feedRef.offline = true;
+            feedRef.offline = playable === cached;
             feedRef.lastStatus = "";
             const first = feed.start();
             if (first.current) {
@@ -313,6 +366,7 @@ function Screen(ctx) {
             setRunnerScriptPath(released.script);
             setProbePath(released.probe);
             registerHostInterface();
+            registerCrawlerHost();
             setResourcesReady(true);
             setStatusText("资源就绪，等待页面握手…");
             // 宿主能力先报一次：传输层的请求超时依赖 setTimeout，
@@ -640,9 +694,37 @@ function Screen(ctx) {
             : waitingBox,
     ]);
     const body = target === "cache" ? cacheBody : webViewOrWaiting;
+    const crawlerWebView = UI.WebView({
+        key: "shader_feed_crawler_webview",
+        controller: crawlerController,
+        url: crawl_probe_js_1.SHADERTOY_PROBE_URL,
+        height: 1,
+        fillMaxWidth: true,
+        javaScriptEnabled: true,
+        domStorageEnabled: true,
+        supportZoom: false,
+        onPageFinished: () => {
+            // Cloudflare also reports page-finished for the challenge document. Wait for
+            // the real page before creating the transport; otherwise every request is
+            // sent to the challenge HTML and the crawler burns through retries.
+            Promise.resolve(crawlerController.evaluateJavascript("document.title"))
+                .then((title) => {
+                const value = String(title ?? "").toLowerCase();
+                if (value.indexOf("just a moment") >= 0 || value.indexOf("attention required") >= 0) {
+                    return;
+                }
+                crawlerRef.ready = true;
+                startLiveCrawler();
+            })
+                .catch(() => undefined);
+        },
+        onReceivedError: (event) => {
+            hostLog("[ShaderFeed] crawler page error: " + JSON.stringify(event));
+        },
+    });
     return UI.Column({
         fillMaxSize: true,
         backgroundColor: colors.surface,
         onLoad: boot,
-    }, [toolbar, statusBar, body]);
+    }, [toolbar, statusBar, crawlerWebView, body]);
 }

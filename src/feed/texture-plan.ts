@@ -19,23 +19,23 @@ import type { ShaderChannel } from "./parse.js";
 
 /** 待下载的一张纹理。已按 URL 去重。 */
 export interface TextureWanted {
-  url: string;
-  ext: string;
+ url: string;
+ ext: string;
 }
 
 /** 缓存命中时，台账里那张纹理的身份。 */
 export interface CachedTexture {
-  hash: string;
-  ext: string;
+ hash: string;
+ ext: string;
 }
 
 /** 一条通道下发时的最终形态。 */
 export interface ChannelPlan {
-  channel: number;
-  ctype: string;
-  src: string;
-  /** true = src 已被改写成虚拟域（由本地缓存服务）；false = 仍是原始 URL（在线回退）。 */
-  cached: boolean;
+ channel: number;
+ ctype: string;
+ src: string;
+ /** true = src 已被改写成虚拟域（由本地缓存服务）；false = 仍是原始 URL（在线回退）。 */
+ cached: boolean;
 }
 
 /**
@@ -45,26 +45,26 @@ export interface ChannelPlan {
  * 写错的后果是落盘文件没有扩展名 → WebView 拿不到 MIME → 图片加载失败。
  */
 export function extFromUrl(url: string): string {
-  if (typeof url !== "string") {
-    return "";
-  }
-  // 去掉查询串与锚点，再取最后一个点之后的部分。
-  const withoutHash = url.split("#", 1)[0] || "";
-  const withoutQuery = withoutHash.split("?", 1)[0] || "";
-  const lastSlash = withoutQuery.lastIndexOf("/");
-  const name = lastSlash >= 0 ? withoutQuery.slice(lastSlash + 1) : withoutQuery;
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0 || dot === name.length - 1) {
-    return "";
-  }
-  const ext = name.slice(dot + 1).toLowerCase();
-  // 只接受字母数字：防止把更长的杂串当扩展名（也就挡住 `a.b?` 这类残留）。
-  return /^[a-z0-9]{1,8}$/.test(ext) ? ext : "";
+ if (typeof url !== "string") {
+  return "";
+ }
+ // 去掉查询串与锚点，再取最后一个点之后的部分。
+ const withoutHash = url.split("#", 1)[0] || "";
+ const withoutQuery = withoutHash.split("?", 1)[0] || "";
+ const lastSlash = withoutQuery.lastIndexOf("/");
+ const name = lastSlash >= 0 ? withoutQuery.slice(lastSlash + 1) : withoutQuery;
+ const dot = name.lastIndexOf(".");
+ if (dot <= 0 || dot === name.length - 1) {
+  return "";
+ }
+ const ext = name.slice(dot + 1).toLowerCase();
+ // 只接受字母数字：防止把更长的杂串当扩展名（也就挡住 `a.b?` 这类残留）。
+ return /^[a-z0-9]{1,8}$/.test(ext) ? ext : "";
 }
 
 /** 从台账里的落盘路径反推扩展名（`recordTexture` 存进去时用的那个）。 */
 export function extFromFile(file: string): string {
-  return extFromUrl(file);
+ return extFromUrl(file);
 }
 
 /**
@@ -73,26 +73,28 @@ export function extFromFile(file: string): string {
  * 只挑 `ctype === "texture"` 且有 src 的通道 —— 其余（keyboard/audio/cubemap 等）
  * 解析层已经标记为不支持，这里不重复判断，但要**跳过**它们，别把 cursor 之类的假 URL 也去下载。
  */
-export function planTextureDownloads(channels: ShaderChannel[]): TextureWanted[] {
-  const seen: Record<string, boolean> = {};
-  const out: TextureWanted[] = [];
-  for (const ch of channels) {
-    if (!ch || ch.ctype !== "texture") {
-      continue;
-    }
-    const url = typeof ch.src === "string" ? ch.src.trim() : "";
-    // 相对/空 URL 不下载：Shadertoy 的图片纹理都是绝对 https URL，
-    // 其余形态（例如自引用 pass）拿不到字节，下载只会白费一轮。
-    if (!url || !/^https?:/i.test(url)) {
-      continue;
-    }
-    if (seen[url]) {
-      continue;
-    }
-    seen[url] = true;
-    out.push({ url, ext: extFromUrl(url) || "bin" });
+export function planTextureDownloads(
+ channels: ShaderChannel[],
+): TextureWanted[] {
+ const seen: Record<string, boolean> = {};
+ const out: TextureWanted[] = [];
+ for (const ch of channels) {
+  if (!ch || ch.ctype !== "texture") {
+   continue;
   }
-  return out;
+  const url = typeof ch.src === "string" ? ch.src.trim() : "";
+  // 相对/空 URL 不下载：Shadertoy 的图片纹理都是绝对 https URL，
+  // 其余形态（例如自引用 pass）拿不到字节，下载只会白费一轮。
+  if (!url || !/^https?:/i.test(url)) {
+   continue;
+  }
+  if (seen[url]) {
+   continue;
+  }
+  seen[url] = true;
+  out.push({ url, ext: extFromUrl(url) || "bin" });
+ }
+ return out;
 }
 
 /**
@@ -102,29 +104,34 @@ export function planTextureDownloads(channels: ShaderChannel[]): TextureWanted[]
  * 没命中就**保留原 URL** —— 在线时 WebView 自己会去拉，行为与改造前一致，不会更糟。
  */
 export function planChannelDispatch(
-  channels: ShaderChannel[],
-  lookup: (url: string) => CachedTexture | null,
-  virtualHost: string,
+ channels: ShaderChannel[],
+ lookup: (url: string) => CachedTexture | null,
+ virtualHost: string,
 ): ChannelPlan[] {
-  const out: ChannelPlan[] = [];
-  for (const ch of channels) {
-    if (!ch) {
-      continue;
-    }
-    const url = typeof ch.src === "string" ? ch.src.trim() : "";
-    const hit = url && /^https?:/i.test(url) ? lookup(url) : null;
-    if (hit) {
-      out.push({
-        channel: ch.channel,
-        ctype: ch.ctype,
-        src: virtualHost + "/tex/" + hit.hash + "." + (hit.ext || "bin"),
-        cached: true,
-      });
-      continue;
-    }
-    out.push({ channel: ch.channel, ctype: ch.ctype, src: ch.src, cached: false });
+ const out: ChannelPlan[] = [];
+ for (const ch of channels) {
+  if (!ch) {
+   continue;
   }
-  return out;
+  const url = typeof ch.src === "string" ? ch.src.trim() : "";
+  const hit = url && /^https?:/i.test(url) ? lookup(url) : null;
+  if (hit) {
+   out.push({
+    channel: ch.channel,
+    ctype: ch.ctype,
+    src: virtualHost + "/tex/" + hit.hash + "." + (hit.ext || "bin"),
+    cached: true,
+   });
+   continue;
+  }
+  out.push({
+   channel: ch.channel,
+   ctype: ch.ctype,
+   src: ch.src,
+   cached: false,
+  });
+ }
+ return out;
 }
 
 /**
@@ -132,25 +139,25 @@ export function planChannelDispatch(
  * 不是 `/tex/...` 形状就返回 null —— 拦截器据此决定"是不是我的请求"。
  */
 export function parseVirtualTexturePath(
-  pathname: string,
+ pathname: string,
 ): { hash: string; ext: string } | null {
-  if (typeof pathname !== "string") {
-    return null;
-  }
-  const prefix = "/tex/";
-  if (!pathname.startsWith(prefix)) {
-    return null;
-  }
-  const name = pathname.slice(prefix.length);
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0) {
-    return null;
-  }
-  const hash = name.slice(0, dot);
-  const ext = name.slice(dot + 1).toLowerCase();
-  // hash 必须是安全文件名：它会被拼进落盘路径，带 `/` 或 `..` 就成了路径穿越。
-  if (!/^[a-z0-9]{1,64}$/i.test(hash) || !/^[a-z0-9]{1,8}$/.test(ext)) {
-    return null;
-  }
-  return { hash, ext };
+ if (typeof pathname !== "string") {
+  return null;
+ }
+ const prefix = "/tex/";
+ if (!pathname.startsWith(prefix)) {
+  return null;
+ }
+ const name = pathname.slice(prefix.length);
+ const dot = name.lastIndexOf(".");
+ if (dot <= 0) {
+  return null;
+ }
+ const hash = name.slice(0, dot);
+ const ext = name.slice(dot + 1).toLowerCase();
+ // hash 必须是安全文件名：它会被拼进落盘路径，带 `/` 或 `..` 就成了路径穿越。
+ if (!/^[a-z0-9]{1,64}$/i.test(hash) || !/^[a-z0-9]{1,8}$/.test(ext)) {
+  return null;
+ }
+ return { hash, ext };
 }

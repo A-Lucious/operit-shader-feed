@@ -20,6 +20,7 @@ function createCrawler(transport, options = {}) {
     const concurrency = Math.max(1, options.detailConcurrency ?? 3);
     const maxAttempts = Math.max(1, options.maxAttempts ?? 2);
     const parse = options.parse ?? parse_js_1.parseShader;
+    const onRecord = options.onRecord;
     /** 已解析、可立即播放。 */
     const ready = [];
     /** 已拿到 id、尚未取详情。 */
@@ -120,6 +121,14 @@ function createCrawler(transport, options = {}) {
                 }
                 const record = parsed.record;
                 ready.push(record);
+                if (onRecord) {
+                    try {
+                        await onRecord(record);
+                    }
+                    catch {
+                        // 持久化失败不应丢掉已解析的可播记录。
+                    }
+                }
                 stats.delivered++;
                 if ((0, parse_js_1.isSinglePassRenderable)(record)) {
                     stats.singlePass++;
