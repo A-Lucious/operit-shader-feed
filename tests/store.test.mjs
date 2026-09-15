@@ -356,6 +356,49 @@ async function main() {
     );
   }
 
+  console.log("── 并发写入：共享的 .tmp 路径不能导致「保存随机失败」 ──");
+  {
+    const mem = makeMemFs();
+    const store = createStore(mem.fs, { root: ROOT_DIR, hash: deterministicHash });
+
+    // 12 条同时保存：它们都要写同一个 index.json（→ 同一个 .tmp）
+    const N = 12;
+    const results = await Promise.allSettled(
+      Array.from({ length: N }, (_, i) => store.saveShader(makeRecord("cc" + i), true)),
+    );
+    const rejected = results.filter((r) => r.status === "rejected");
+    eq(
+      "并发保存 12 条：一条都不该失败",
+      rejected.length,
+      0,
+      JSON.stringify(rejected.map((r) => String(r.reason && r.reason.message))),
+    );
+    eq("索引里 12 条都在（没有丢写）", (await store.listShaders()).length, N);
+    eq(
+      "没有留下 .tmp 残骸",
+      [...mem.files.keys()].filter((k) => k.endsWith(".tmp")).length,
+      0,
+    );
+
+    // 纹理并发：每一次都会写台账 + 可能触发淘汰，所以落盘更密集
+    const urls = Array.from({ length: 8 }, (_, i) => "https://s/tex" + i + ".png");
+    const texResults = await Promise.allSettled(
+      urls.map((url) => store.recordTexture(url, b64(64), "png")),
+    );
+    eq(
+      "并发写 8 张纹理：一条都不该失败",
+      texResults.filter((r) => r.status === "rejected").length,
+      0,
+      JSON.stringify(texResults.filter((r) => r.status === "rejected").map((r) => String(r.reason))),
+    );
+    eq("台账里 8 张都在", (await store.usage()).textureCount, 8);
+    eq(
+      "纹理并发也没留下 .tmp 残骸",
+      [...mem.files.keys()].filter((k) => k.endsWith(".tmp")).length,
+      0,
+    );
+  }
+
   console.log(`\n${pass}/${pass + failures.length} 通过`);
   if (failures.length) {
     console.error(`✗ ${failures.length} 项失败`);

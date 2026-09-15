@@ -72,8 +72,16 @@ function createStore(fs, options) {
     const ledgerFile = root + "/textures.json";
     const shaderDir = root + "/shaders";
     const textureDir = root + "/textures";
-    let index = null;
-    let ledger = null;
+    /**
+     * 索引与台账的惰性缓存。**缓存的是 Promise，不是值。**
+     *
+     * 为什么：缓存值的话，N 个并发调用会全部看到缓存为空 → 各自读盘 → 各自建一个对象 →
+     * 最后一个赋值胜出，前 N-1 个的对象被丢弃。于是每个调用各自改**自己那份**，
+     * 只有最后一份活下来 —— 表现为「并发保存 8 条，台账里只剩 1 条」，而且不报任何错。
+     * （实测：12 条并发保存丢了 11 条。）
+     */
+    let indexPromise = null;
+    let ledgerPromise = null;
     function shaderPath(id) {
         return shaderDir + "/" + id + ".json";
     }
@@ -83,11 +91,22 @@ function createStore(fs, options) {
     /**
      * 原子写：先写 .tmp 再 move。中途崩了也不会留下半个 JSON。
      * 损坏的索引会让插件再也启动不起来，所以这一步不能省。
+     *
+     * **必须串行化**：tmp 路径是固定的，两个写并发时后者会覆盖前者的 tmp，
+     * 前者的 move 把后者的内容搬走，后者的 move 则因源文件已被搬走而抛错 ——
+     * 表现为「保存随机失败」。串行后这一整类问题消失。
      */
-    async function writeTextAtomic(path, text) {
-        const tmp = path + ".tmp";
-        await fs.writeText(tmp, text);
-        await fs.move(tmp, path);
+    let writeQueue = Promise.resolve();
+    function writeTextAtomic(path, text) {
+        const run = async () => {
+            const tmp = path + ".tmp";
+            await fs.writeText(tmp, text);
+            await fs.move(tmp, path);
+        };
+        // 排到队列尾部；前一个失败也必须继续（所以两个分支都指向 run）。
+        const task = writeQueue.then(run, run);
+        writeQueue = task.then(() => undefined, () => undefined);
+        return task;
     }
     /**
      * 读 JSON。**任何解析失败都退化成空状态，绝不抛出** ——
@@ -115,29 +134,27 @@ function createStore(fs, options) {
         await fs.mkdir(shaderDir);
         await fs.mkdir(textureDir);
     }
-    async function loadIndex() {
-        if (index)
-            return index;
-        const loaded = await readJson(indexFile, {});
-        index = {
-            version: INDEX_VERSION,
-            shaders: loaded && typeof loaded.shaders === "object" && loaded.shaders
-                ? loaded.shaders
-                : {},
-        };
-        return index;
+    function loadIndex() {
+        if (!indexPromise) {
+            indexPromise = readJson(indexFile, {}).then((loaded) => ({
+                version: INDEX_VERSION,
+                shaders: loaded && typeof loaded.shaders === "object" && loaded.shaders
+                    ? loaded.shaders
+                    : {},
+            }));
+        }
+        return indexPromise;
     }
-    async function loadLedger() {
-        if (ledger)
-            return ledger;
-        const loaded = await readJson(ledgerFile, {});
-        ledger = {
-            version: INDEX_VERSION,
-            textures: loaded && typeof loaded.textures === "object" && loaded.textures
-                ? loaded.textures
-                : {},
-        };
-        return ledger;
+    function loadLedger() {
+        if (!ledgerPromise) {
+            ledgerPromise = readJson(ledgerFile, {}).then((loaded) => ({
+                version: INDEX_VERSION,
+                textures: loaded && typeof loaded.textures === "object" && loaded.textures
+                    ? loaded.textures
+                    : {},
+            }));
+        }
+        return ledgerPromise;
     }
     async function persistIndex() {
         const current = await loadIndex();
@@ -333,13 +350,13 @@ function createStore(fs, options) {
                     warn("清理纹理失败 " + entry.file + ": " + errText(err));
                 }
             }
-            ledger = { version: INDEX_VERSION, textures: {} };
+            ledgerPromise = Promise.resolve({ version: INDEX_VERSION, textures: {} });
             await persistLedger();
         },
         /** 全清（纹理 + shader）。 */
         async clearAll() {
-            ledger = { version: INDEX_VERSION, textures: {} };
-            index = { version: INDEX_VERSION, shaders: {} };
+            ledgerPromise = Promise.resolve({ version: INDEX_VERSION, textures: {} });
+            indexPromise = Promise.resolve({ version: INDEX_VERSION, shaders: {} });
             try {
                 await fs.remove(textureDir, true);
             }

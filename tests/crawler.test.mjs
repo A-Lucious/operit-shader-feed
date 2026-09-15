@@ -296,7 +296,11 @@ async function main() {
     const stuck = {
       async listIds() {
         calls += 1;
-        return { ok: true, ids: ["dup1", "dup2"], nextCursor: "never-advances" };
+        return {
+          ok: true,
+          ids: ["dup1", "dup2"],
+          nextCursor: "never-advances",
+        };
       },
       async fetchShader(id) {
         return { ok: true, text: shaderJson(id) };
@@ -305,7 +309,11 @@ async function main() {
     const crawler = createCrawler(stuck);
     await crawler.ensure(5);
     const afterFirstPass = calls;
-    ok("游标不前进：一轮就判到底（不是无休止翻页）", afterFirstPass <= 2, "listCalls=" + afterFirstPass);
+    ok(
+      "游标不前进：一轮就判到底（不是无休止翻页）",
+      afterFirstPass <= 2,
+      "listCalls=" + afterFirstPass,
+    );
     eq("那两条仍被拿到了", crawler.ahead(), 2);
 
     // 排空后才能说"到底了"（exhausted 要求前方也为空）
@@ -335,7 +343,11 @@ async function main() {
     for (let i = 0; i < 4; i++) {
       await crawler.ensure(3);
     }
-    ok("游标前进但只回重复 id：连续几页后也会判到底", state.listCalls.length <= 5, "listCalls=" + state.listCalls.length);
+    ok(
+      "游标前进但只回重复 id：连续几页后也会判到底",
+      state.listCalls.length <= 5,
+      "listCalls=" + state.listCalls.length,
+    );
     crawler.take();
     eq("排空后 exhausted 为真", crawler.exhausted(), true);
 

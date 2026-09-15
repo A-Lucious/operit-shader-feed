@@ -126,6 +126,12 @@ resources/webview/          runner.html（含 touch-action:none）、probe.html
   丢在解析层，D3 的单 pass 占比就永远统计不出来了。
 - **`ToolPkg.readResource` 返回的是落盘路径，不是文件内容**，所以 WebView 走
   「虚拟域 + 资源拦截」，`runner.html` 用相对名引用 `runner.js`。
+- **所有落盘必须走 `writeTextAtomic` 的串行队列**，看上去像多余的仪式。
+  去掉它实测的后果：12 条并发保存有 **11 条抛错、11 条数据静默丢失**（原子写用的是固定
+  的 `.tmp` 路径，并发时互相踩）。有专门的并发测试守着。
+- **`loadIndex`/`loadLedger` 缓存的是 Promise 而不是值**，这看上去也像多余。
+  缓存值的话，N 个并发调用会各自读到空、各自建对象，最后一个赋值胜出 ——
+  8 次并发写纹理最后台账只剩 1 条，而且不报任何错。
 
 ---
 

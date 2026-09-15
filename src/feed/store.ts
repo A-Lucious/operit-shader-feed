@@ -155,8 +155,16 @@ export function createStore(fs: StoreFs, options: StoreOptions) {
     textures: Record<string, TextureLedgerEntry>;
   }
 
-  let index: IndexFile | null = null;
-  let ledger: LedgerFile | null = null;
+  /**
+   * 索引与台账的惰性缓存。**缓存的是 Promise，不是值。**
+   *
+   * 为什么：缓存值的话，N 个并发调用会全部看到缓存为空 → 各自读盘 → 各自建一个对象 →
+   * 最后一个赋值胜出，前 N-1 个的对象被丢弃。于是每个调用各自改**自己那份**，
+   * 只有最后一份活下来 —— 表现为「并发保存 8 条，台账里只剩 1 条」，而且不报任何错。
+   * （实测：12 条并发保存丢了 11 条。）
+   */
+  let indexPromise: Promise<IndexFile> | null = null;
+  let ledgerPromise: Promise<LedgerFile> | null = null;
 
   function shaderPath(id: string): string {
     return shaderDir + "/" + id + ".json";
@@ -168,11 +176,26 @@ export function createStore(fs: StoreFs, options: StoreOptions) {
   /**
    * 原子写：先写 .tmp 再 move。中途崩了也不会留下半个 JSON。
    * 损坏的索引会让插件再也启动不起来，所以这一步不能省。
+   *
+   * **必须串行化**：tmp 路径是固定的，两个写并发时后者会覆盖前者的 tmp，
+   * 前者的 move 把后者的内容搬走，后者的 move 则因源文件已被搬走而抛错 ——
+   * 表现为「保存随机失败」。串行后这一整类问题消失。
    */
-  async function writeTextAtomic(path: string, text: string): Promise<void> {
-    const tmp = path + ".tmp";
-    await fs.writeText(tmp, text);
-    await fs.move(tmp, path);
+  let writeQueue: Promise<unknown> = Promise.resolve();
+
+  function writeTextAtomic(path: string, text: string): Promise<void> {
+    const run = async (): Promise<void> => {
+      const tmp = path + ".tmp";
+      await fs.writeText(tmp, text);
+      await fs.move(tmp, path);
+    };
+    // 排到队列尾部；前一个失败也必须继续（所以两个分支都指向 run）。
+    const task = writeQueue.then(run, run);
+    writeQueue = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
   }
 
   /**
@@ -201,30 +224,30 @@ export function createStore(fs: StoreFs, options: StoreOptions) {
     await fs.mkdir(textureDir);
   }
 
-  async function loadIndex(): Promise<IndexFile> {
-    if (index) return index;
-    const loaded = await readJson<Partial<IndexFile>>(indexFile, {});
-    index = {
-      version: INDEX_VERSION,
-      shaders:
-        loaded && typeof loaded.shaders === "object" && loaded.shaders
-          ? loaded.shaders
-          : {},
-    };
-    return index;
+  function loadIndex(): Promise<IndexFile> {
+    if (!indexPromise) {
+      indexPromise = readJson<Partial<IndexFile>>(indexFile, {}).then((loaded) => ({
+        version: INDEX_VERSION,
+        shaders:
+          loaded && typeof loaded.shaders === "object" && loaded.shaders
+            ? loaded.shaders
+            : {},
+      }));
+    }
+    return indexPromise;
   }
 
-  async function loadLedger(): Promise<LedgerFile> {
-    if (ledger) return ledger;
-    const loaded = await readJson<Partial<LedgerFile>>(ledgerFile, {});
-    ledger = {
-      version: INDEX_VERSION,
-      textures:
-        loaded && typeof loaded.textures === "object" && loaded.textures
-          ? loaded.textures
-          : {},
-    };
-    return ledger;
+  function loadLedger(): Promise<LedgerFile> {
+    if (!ledgerPromise) {
+      ledgerPromise = readJson<Partial<LedgerFile>>(ledgerFile, {}).then((loaded) => ({
+        version: INDEX_VERSION,
+        textures:
+          loaded && typeof loaded.textures === "object" && loaded.textures
+            ? loaded.textures
+            : {},
+      }));
+    }
+    return ledgerPromise;
   }
 
   async function persistIndex(): Promise<void> {
@@ -436,14 +459,14 @@ export function createStore(fs: StoreFs, options: StoreOptions) {
           warn("清理纹理失败 " + entry.file + ": " + errText(err));
         }
       }
-      ledger = { version: INDEX_VERSION, textures: {} };
+      ledgerPromise = Promise.resolve({ version: INDEX_VERSION, textures: {} });
       await persistLedger();
     },
 
     /** 全清（纹理 + shader）。 */
     async clearAll(): Promise<void> {
-      ledger = { version: INDEX_VERSION, textures: {} };
-      index = { version: INDEX_VERSION, shaders: {} };
+      ledgerPromise = Promise.resolve({ version: INDEX_VERSION, textures: {} });
+      indexPromise = Promise.resolve({ version: INDEX_VERSION, shaders: {} });
       try {
         await fs.remove(textureDir, true);
       } catch (err) {
