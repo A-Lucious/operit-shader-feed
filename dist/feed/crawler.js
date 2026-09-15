@@ -28,6 +28,8 @@ function createCrawler(transport, options = {}) {
     const seen = new Set();
     let cursor = "";
     let listExhausted = false;
+    /** 连续多少页没拿到新 id。游标一直前进却只回重复 id 时靠它判到底。 */
+    let emptyStreak = 0;
     let active = 0;
     let pumpPromise = null;
     const stats = {
@@ -52,6 +54,7 @@ function createCrawler(transport, options = {}) {
             // 列表失败不把整个爬虫判死：留待下一次 ensure 重试。
             return;
         }
+        const previousCursor = cursor;
         cursor = page.nextCursor || cursor;
         let added = 0;
         for (const id of page.ids) {
@@ -64,10 +67,25 @@ function createCrawler(transport, options = {}) {
         }
         if (page.exhausted || page.ids.length === 0) {
             listExhausted = true;
+            return;
         }
-        // 页面返回了内容但全是重复 id，也算到底，避免无限循环。
-        if (added === 0 && page.ids.length > 0 && !page.nextCursor) {
+        // 判到底的两个信号，缺一个都会变成“卡住时每秒发一次列表请求”：
+        //
+        //   1. 游标没前进。服务端完全可能一直回同一个游标（或永远回同样一批重复 id），
+        //      这时再翻也是同一页。用「游标不变」当信号比猜次数精确。
+        //   2. 连续几页都没拿到新 id。就算游标每次前进，一直回已见过的 id 也是死路。
+        if (added === 0 && cursor === previousCursor) {
             listExhausted = true;
+            return;
+        }
+        if (added === 0) {
+            emptyStreak++;
+            if (emptyStreak >= 3) {
+                listExhausted = true;
+            }
+        }
+        else {
+            emptyStreak = 0;
         }
     }
     /** 取一条详情（含至多 maxAttempts-1 次重试），成功后推入 ready。 */

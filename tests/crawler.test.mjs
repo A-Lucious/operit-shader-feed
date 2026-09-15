@@ -289,6 +289,63 @@ async function main() {
     ok("条数不超过列表提供的 40", drained.length <= 40, `${drained.length} 条`);
   }
 
+  console.log("── 病态列表响应：卡住时不能变成每秒一个列表请求 ──");
+  {
+    // 情况 1：永远只回同一批重复 id，且游标不前进
+    let calls = 0;
+    const stuck = {
+      async listIds() {
+        calls += 1;
+        return { ok: true, ids: ["dup1", "dup2"], nextCursor: "never-advances" };
+      },
+      async fetchShader(id) {
+        return { ok: true, text: shaderJson(id) };
+      },
+    };
+    const crawler = createCrawler(stuck);
+    await crawler.ensure(5);
+    const afterFirstPass = calls;
+    ok("游标不前进：一轮就判到底（不是无休止翻页）", afterFirstPass <= 2, "listCalls=" + afterFirstPass);
+    eq("那两条仍被拿到了", crawler.ahead(), 2);
+
+    // 排空后才能说"到底了"（exhausted 要求前方也为空）
+    crawler.take();
+    crawler.take();
+    eq("排空后 exhausted 为真", crawler.exhausted(), true);
+
+    // 关键：再反复 ensure 不得继续打列表接口 —— 这才是"卡住时每秒一个请求"的入口
+    for (let i = 0; i < 10; i++) {
+      await crawler.ensure(5);
+    }
+    eq("再连着 ensure 10 次也不发列表请求", calls, afterFirstPass);
+  }
+  {
+    // 情况 2：游标每次都在前进，但只回已见过的 id
+    const pages = {};
+    for (let i = 0; i < 8; i++) {
+      pages[i === 0 ? "start" : "p" + i] = {
+        ok: true,
+        ids: ["onlydup"],
+        nextCursor: "p" + (i + 1),
+      };
+    }
+    const { transport, state } = makeFake(pages);
+    const crawler = createCrawler(transport);
+
+    for (let i = 0; i < 4; i++) {
+      await crawler.ensure(3);
+    }
+    ok("游标前进但只回重复 id：连续几页后也会判到底", state.listCalls.length <= 5, "listCalls=" + state.listCalls.length);
+    crawler.take();
+    eq("排空后 exhausted 为真", crawler.exhausted(), true);
+
+    const before = state.listCalls.length;
+    for (let i = 0; i < 5; i++) {
+      await crawler.ensure(3);
+    }
+    eq("判到底后不再发列表请求", state.listCalls.length, before);
+  }
+
   console.log(`\n${pass}/${pass + failures.length} 通过`);
   if (failures.length) {
     console.error(`✗ ${failures.length} 项失败`);

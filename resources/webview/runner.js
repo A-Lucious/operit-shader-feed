@@ -723,7 +723,8 @@
       if (!deck._running) return false;
       if (deck._paused) return false;
       const minInterval = deck._minInterval || 0;
-      if (minInterval && ts - deck._lastTickTs < minInterval - 0.5) return false;
+      if (minInterval && ts - deck._lastTickTs < minInterval - 0.5)
+        return false;
       deck._lastTickTs = ts;
       deck.renderFrame(ts);
       return true;
