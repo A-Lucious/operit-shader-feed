@@ -74,7 +74,9 @@ function extractTitle(xmlContent) {
 function precheckShaderCode(code) {
     const text = code.trim();
     if (!text) {
-        return "标签里没有代码。正确写法：`<" + exports.SHADER_XML_TAG + ">` 里面放 Shadertoy 风格的 GLSL。";
+        return ("标签里没有代码。正确写法：`<" +
+            exports.SHADER_XML_TAG +
+            ">` 里面放 Shadertoy 风格的 GLSL。");
     }
     if (!text.includes("mainImage")) {
         return ("代码里没有 `mainImage`。Shadertoy 的 image pass 必须定义：" +

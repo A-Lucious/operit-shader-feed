@@ -35,6 +35,9 @@ interface ToolPkgApi {
  registerUiRoute(definition: ToolPkgUiRouteRegistration): void;
  registerNavigationEntry(definition: ToolPkgNavigationEntryRegistration): void;
  registerXmlRenderPlugin(definition: ToolPkgXmlRenderRegistration): void;
+ registerSystemPromptComposeHook(
+  definition: ToolPkgSystemPromptComposeRegistration,
+ ): void;
  /**
   * 把 manifest.resources 里声明的资源释放到宿主临时目录，返回**落盘后的绝对路径**。
   * 注意：返回的是路径字符串，不是文件内容。
@@ -95,6 +98,37 @@ interface ToolPkgXmlRenderRegistration {
  id: string;
  tag: string;
  function: (event: ToolPkgXmlRenderEvent) => ToolPkgXmlRenderReturn;
+}
+
+// ----------------------------------------------------------- 系统提示组合钩子
+//
+// 形状来自官方示例 `examples/thinking_guidance/src/main.ts`：
+//   1. 只处理 `after_compose_system_prompt` 阶段，其它阶段返回 null
+//   2. 返回的是**整段新提示**（拿现有 systemPrompt 拼上自己的内容），不是增量
+//
+// 代价提醒：写进去的东西会出现在**每一次请求**的系统提示里，所以越短越好。
+
+interface ToolPkgPromptHookPayload {
+ systemPrompt?: string;
+ useEnglish?: boolean;
+}
+
+interface ToolPkgPromptHookEvent {
+ /** 阶段名。示例里用 `event.eventName || event.event` 取，两种都出现过。 */
+ eventName?: string;
+ event?: string;
+ eventPayload?: ToolPkgPromptHookPayload;
+}
+
+interface ToolPkgSystemPromptComposeResult {
+ systemPrompt?: string;
+}
+
+interface ToolPkgSystemPromptComposeRegistration {
+ id: string;
+ function: (
+  event: ToolPkgPromptHookEvent,
+ ) => ToolPkgSystemPromptComposeResult | null | undefined;
 }
 
 declare const ToolPkg: ToolPkgApi;

@@ -69,7 +69,11 @@ function extractTitle(xmlContent: string): string {
 export function precheckShaderCode(code: string): string | null {
   const text = code.trim();
   if (!text) {
-    return "标签里没有代码。正确写法：`<" + SHADER_XML_TAG + ">` 里面放 Shadertoy 风格的 GLSL。";
+    return (
+      "标签里没有代码。正确写法：`<" +
+      SHADER_XML_TAG +
+      ">` 里面放 Shadertoy 风格的 GLSL。"
+    );
   }
   if (!text.includes("mainImage")) {
     return (

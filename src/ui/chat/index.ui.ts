@@ -87,7 +87,8 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
       info: { id: "chat_inline", name: shaderTitle || "chat shader" },
       renderpass: [{ type: "image", inputs: [], code: shaderCode }],
     };
-    const script = "__runnerLoad(" + JSON.stringify(payload) + ", { timeOffset: 0 });";
+    const script =
+      "__runnerLoad(" + JSON.stringify(payload) + ", { timeOffset: 0 });";
     Promise.resolve(controller.evaluateJavascript(script)).catch(
       (error: unknown) => {
         setErrorText("下发失败: " + toErrorText(error));
@@ -170,7 +171,9 @@ export default function Screen(ctx: ComposeDslContext): ComposeNode {
         supportZoom: false,
         useWideViewPort: true,
         loadWithOverviewMode: true,
-        onShouldOverrideUrlLoading: (request: ComposeWebViewNavigationRequest) =>
+        onShouldOverrideUrlLoading: (
+          request: ComposeWebViewNavigationRequest,
+        ) =>
           resolvePathname(request.url) === null
             ? { action: "external", url: request.url }
             : { action: "allow" },
