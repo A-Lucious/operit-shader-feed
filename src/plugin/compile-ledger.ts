@@ -59,7 +59,10 @@ export function createCompileLedger(
   options: CompileLedgerOptions = {},
 ): CompileLedger {
   const now = options.now ?? (() => Date.now());
-  const maxErrorChars = Math.max(200, options.maxErrorChars ?? DEFAULT_MAX_ERROR_CHARS);
+  const maxErrorChars = Math.max(
+    200,
+    options.maxErrorChars ?? DEFAULT_MAX_ERROR_CHARS,
+  );
 
   let state: CompileLedgerState = { kind: "idle" };
   let seq = 0;
@@ -95,8 +98,7 @@ export function createCompileLedger(
       const raw = (input.errors ?? []).map((line) => String(line));
       // 过滤掉空行：渲染器有时会回一个空数组，那不该变成"错误列表里有一条空话"。
       const errors = raw.filter((line) => line.trim() !== "");
-      const prevLength =
-        state.kind === "pending" ? state.codeLength : 0;
+      const prevLength = state.kind === "pending" ? state.codeLength : 0;
       state = {
         kind: "settled",
         ok: input.ok === true,

@@ -7,6 +7,18 @@
  * 写错了不会报任何错，只是聊天里永远什么都不显示，而且离线环境完全查不出来。
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.STATE_KEY_SHADER_TITLE = exports.STATE_KEY_SHADER_CODE = void 0;
+exports.IPC_COMPILE_READ = exports.IPC_COMPILE_WRITE = exports.STATE_KEY_SHADER_TITLE = exports.STATE_KEY_SHADER_CODE = void 0;
 exports.STATE_KEY_SHADER_CODE = "shaderCode";
 exports.STATE_KEY_SHADER_TITLE = "shaderTitle";
+/**
+ * 编译结果的跨运行时通道名（`ToolPkg.ipc`）。
+ *
+ * 同样只有一份的理由更硬：界面往里**写**（渲染器回执）、main 收下、
+ * 工具脚本（也就是 AI）从里面**读**。三处任何一处写错，表现都是「AI 读不到编译结果」，
+ * 而这条链路**无法离线验证** —— 跨运行时投递要真机才能跑。所以名字只能靠这里对齐。
+ *
+ * 语义见官方 TOOLPKG_FORMAT_GUIDE.md：ui 上下文 call 时默认目标就是本包的 main，
+ * 不需要 targetContextKey；sandbox 里的工具同样能 call 到 main。
+ */
+exports.IPC_COMPILE_WRITE = "shader_feed.compile_result.write";
+exports.IPC_COMPILE_READ = "shader_feed.compile_result.read";

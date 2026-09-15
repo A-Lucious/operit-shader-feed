@@ -80,6 +80,26 @@ function main() {
     );
   }
 
+  // 子包（AI 可调用的工具）有两处失败**只能在真机上暴露**，都在这道门禁里拦掉：
+  //   1. entry 指的文件不存在 → 工具根本不存在；
+  //   2. METADATA 注释块没编译进去（比如将来有人给 tsconfig 开了 removeComments）
+  //      → 脚本在包甲、宿主正则找不到元数据，等于「这个包没有工具」。
+  for (const sub of manifest.subpackages || []) {
+    if (!files.includes(sub.entry)) {
+      throw new Error(
+        `manifest.subpackages[${sub.id}].entry 指向的文件不在打包清单里: ${sub.entry}（先跑 tsc）`,
+      );
+    }
+    const text = readFileSync(join(ROOT, sub.entry), "utf8");
+    if (!/\/\*\s*METADATA\s*[\s\S]*?\*\//.test(text)) {
+      throw new Error(
+        `${sub.entry} 里找不到 /* METADATA ... */ 注释块 —— ` +
+          `宿主用 PackageManager 里那条非锚定正则扫全文，找不到就等于「这个包没有工具」。` +
+          `最常见的原因是 tsconfig 开了 removeComments。`,
+      );
+    }
+  }
+
   mkdirSync(OUT_DIR, { recursive: true });
   const outPath = join(
     OUT_DIR,

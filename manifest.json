@@ -15,7 +15,12 @@
     "default": "Live Shadertoy rendering plus hardware, interface-contract, cache and offline self-test panels."
   },
   "enabled_by_default": false,
-  "subpackages": [],
+  "subpackages": [
+    {
+      "id": "shader_compile",
+      "entry": "dist/packages/shader-compile.js"
+    }
+  ],
   "resources": [
     {
       "key": "runner_html",

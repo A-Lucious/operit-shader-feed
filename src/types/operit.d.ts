@@ -31,6 +31,58 @@ interface ToolPkgNavigationEntryRegistration {
  order?: number;
 }
 
+/**
+ * 跨运行时上下文类型。官方 `examples/types/toolpkg.d.ts` 里字面量就是这四个。
+ *   main    = manifest.main 指向的包级入口
+ *   ui      = compose_dsl 界面（每个 UI 实例各有自己的 JS engine）
+ *   sandbox = 独立/子包工具脚本
+ *   provider= 自定义 AI provider
+ */
+type ToolPkgRuntimeKind = "main" | "ui" | "sandbox" | "provider";
+
+interface ToolPkgIpcMeta {
+ channel: string;
+ callerContextKey?: string;
+ currentContextKey?: string;
+ currentRuntime?: ToolPkgRuntimeKind;
+ packageTarget?: string;
+}
+
+interface ToolPkgIpcCallOptions {
+ targetRuntime?: ToolPkgRuntimeKind;
+ targetContextKey?: string;
+}
+
+/**
+ * `ToolPkg.ipc` —— 官方跨运行时通道（TOOLPKG_FORMAT_GUIDE.md「跨上下文共享状态」）。
+ *
+ * 语义（原文要点）：
+ *   - `on` 在当前上下文注册处理函数；`call` 在**非 main 上下文默认发给本包的 main**
+ *   - 指定 `ui`/`provider`/`sandbox` 目标时**必须**给 `targetContextKey`，否则直接报错
+ *   - payload 与返回值必须是 JSON 可序列化数据，按值复制、不保留引用
+ */
+interface ToolPkgIpcApi {
+ on<TPayload = unknown, TResult = unknown>(
+  channel: string,
+  handler: (
+   payload: TPayload,
+   meta: ToolPkgIpcMeta,
+  ) => TResult | Promise<TResult>,
+ ): () => void;
+ off<TPayload = unknown, TResult = unknown>(
+  channel: string,
+  handler?: (
+   payload: TPayload,
+   meta: ToolPkgIpcMeta,
+  ) => TResult | Promise<TResult>,
+ ): boolean;
+ call<TPayload = unknown, TResult = unknown>(
+  channel: string,
+  payload?: TPayload,
+  options?: ToolPkgIpcCallOptions,
+ ): Promise<TResult>;
+}
+
 interface ToolPkgApi {
  registerUiRoute(definition: ToolPkgUiRouteRegistration): void;
  registerNavigationEntry(definition: ToolPkgNavigationEntryRegistration): void;
@@ -47,6 +99,7 @@ interface ToolPkgApi {
   outputFileName?: string,
   internal?: boolean,
  ): Promise<string>;
+ ipc: ToolPkgIpcApi;
 }
 
 // --------------------------------------------------------------- XML 渲染钩子

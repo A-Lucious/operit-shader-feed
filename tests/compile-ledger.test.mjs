@@ -68,7 +68,11 @@ function main() {
   {
     const led = createCompileLedger({ now: () => 2000 });
     led.record({ ok: false, errors: [ERR], codeLength: 300 });
-    ok("第一次失败能读到报错原文", led.describe().includes("uv2"), led.describe());
+    ok(
+      "第一次失败能读到报错原文",
+      led.describe().includes("uv2"),
+      led.describe(),
+    );
 
     // AI 按报错改完之后界面会重新下发 —— 此刻新结果还没回来
     led.markPending({ codeLength: 310 });
@@ -94,7 +98,11 @@ function main() {
     const text = led.describe();
     ok("失败时带编译器原文", text.includes(ERR), text);
     ok("失败时给出下一步动作", text.includes("重新写一遍"), text);
-    ok("报错原文前后有上下文（不是光秃秃一行）", text.includes("GLSL 编译器原文"), text);
+    ok(
+      "报错原文前后有上下文（不是光秃秃一行）",
+      text.includes("GLSL 编译器原文"),
+      text,
+    );
   }
 
   console.log("── 边角：空日志、空行、长度未知、截断 ──");
@@ -102,21 +110,37 @@ function main() {
     const led = createCompileLedger({ now: () => 4000 });
     led.record({ ok: false, errors: [] });
     const noLog = led.describe();
-    ok("没有日志也要说人话（不能是空话）", noLog.includes("没有给出日志"), noLog);
+    ok(
+      "没有日志也要说人话（不能是空话）",
+      noLog.includes("没有给出日志"),
+      noLog,
+    );
     ok("并给出排查方向", noLog.includes("状态条"), noLog);
 
     led.record({ ok: false, errors: ["", "   ", ERR] });
-    ok("空行会被过滤，正常报错留下", led.describe().includes(ERR), led.describe());
+    ok(
+      "空行会被过滤，正常报错留下",
+      led.describe().includes(ERR),
+      led.describe(),
+    );
     eq("空行没有变成错误条目", led.state().errors.length, 1);
 
     // 长度未知时不该编一个「代码 0 字」出来，那会让 AI 以为拿到了别人的结果
     led.record({ ok: true });
-    ok("长度未知时不提字数", !led.describe().includes("代码 0 字"), led.describe());
+    ok(
+      "长度未知时不提字数",
+      !led.describe().includes("代码 0 字"),
+      led.describe(),
+    );
 
     // pending 里知道的长度要延续到结果上
     led.markPending({ codeLength: 120 });
     led.record({ ok: true });
-    ok("pending 的长度会延续到结果", led.describe().includes("代码 120 字"), led.describe());
+    ok(
+      "pending 的长度会延续到结果",
+      led.describe().includes("代码 120 字"),
+      led.describe(),
+    );
   }
   {
     const led = createCompileLedger({ now: () => 5000, maxErrorChars: 200 });
@@ -136,7 +160,11 @@ function main() {
     ok("第 2 次", led.describe().includes("第 2 次"), led.describe());
     led.reset();
     eq("reset 回到 idle", led.state().kind, "idle");
-    ok("reset 后描述也回到 idle 措辞", led.describe().includes("还没有收到"), led.describe());
+    ok(
+      "reset 后描述也回到 idle 措辞",
+      led.describe().includes("还没有收到"),
+      led.describe(),
+    );
   }
 
   console.log("── 穷举：任何状态、任何调用顺序都不能产出空话 ──");
