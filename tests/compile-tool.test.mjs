@@ -147,9 +147,16 @@ async function main() {
     // 这三处里任何一处漂了，表现都是「工具不存在」或「AI 永远不调它」，
     // 而且只能在真机上发现。METADATA 只能是字面量（它是注释里的 JSON），
     // 所以名字天然有三份，只能靠这条断言把它们钉在一起。
-    const scriptText = readFileSync(join(ROOT, "dist/packages/shader-compile.js"), "utf8");
+    const scriptText = readFileSync(
+      join(ROOT, "dist/packages/shader-compile.js"),
+      "utf8",
+    );
     const metaMatch = scriptText.match(/\/\*\s*METADATA\s*([\s\S]*?)\*\//);
-    ok("子包脚本里有 METADATA 块", metaMatch !== null, "没有就等于这个包没有工具");
+    ok(
+      "子包脚本里有 METADATA 块",
+      metaMatch !== null,
+      "没有就等于这个包没有工具",
+    );
 
     let meta = {};
     try {
@@ -167,20 +174,38 @@ async function main() {
 
     ok(
       "同名函数真的有导出（宿主按名字找导出，改名只会表现为「工具不存在」）",
-      new RegExp("exports\\." + toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*=").test(
-        scriptText,
-      ),
+      new RegExp(
+        "exports\\." +
+          toolName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+          "\\s*=",
+      ).test(scriptText),
       "产物里找不到 exports." + toolName,
     );
-    eq("参数列表存在且为空（宿主会读它）", Array.isArray(tool.parameters), true);
+    eq(
+      "参数列表存在且为空（宿主会读它）",
+      Array.isArray(tool.parameters),
+      true,
+    );
     eq("参数个数为 0", (tool.parameters || []).length, 0);
 
     const desc = JSON.stringify(tool.description || "");
-    ok("描述里解释了为什么必须调用它（编译需要 WebGL）", desc.includes("WebGL"), desc.slice(0, 120));
-    ok("描述里说了失败时该干嘛（按报错改）", desc.includes("报错") || desc.includes("errors"), desc.slice(0, 160));
+    ok(
+      "描述里解释了为什么必须调用它（编译需要 WebGL）",
+      desc.includes("WebGL"),
+      desc.slice(0, 120),
+    );
+    ok(
+      "描述里说了失败时该干嘛（按报错改）",
+      desc.includes("报错") || desc.includes("errors"),
+      desc.slice(0, 160),
+    );
 
-    const promptText = readFileSync(join(ROOT, "dist/plugin/system-prompt.js"), "utf8");
-    const mentioned = (promptText.match(new RegExp(toolName, "g")) || []).length;
+    const promptText = readFileSync(
+      join(ROOT, "dist/plugin/system-prompt.js"),
+      "utf8",
+    );
+    const mentioned = (promptText.match(new RegExp(toolName, "g")) || [])
+      .length;
     ok(
       "中英两份提示词都提到了这个工具名（只提一份的话另一种语言的用户就永远用不上）",
       mentioned >= 2,

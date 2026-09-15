@@ -59,7 +59,11 @@ const ERR = "[fragment] ERROR: 0:42: 'uv2' : undeclared identifier";
 function main() {
   console.log("── 编码端：只认「一次编译结果」，性能上报必须被丢掉 ──");
   {
-    const runOk = toCompileIpcPayload({ stage: "running", ok: true, errors: [] });
+    const runOk = toCompileIpcPayload({
+      stage: "running",
+      ok: true,
+      errors: [],
+    });
     eq("running → result", runOk && runOk.kind, "result");
     eq("running 是成功", runOk && runOk.ok, true);
 
@@ -72,7 +76,11 @@ function main() {
     eq("compile 是失败", bad && bad.ok, false);
     eq("报错原文带过去了", bad && bad.errors && bad.errors[0], ERR);
 
-    const init = toCompileIpcPayload({ ok: false, stage: "init", errors: ["boom"] });
+    const init = toCompileIpcPayload({
+      ok: false,
+      stage: "init",
+      errors: ["boom"],
+    });
     eq("init（上下文都没建起来）也算一次结果", init && init.ok, false);
 
     // 这条是重点：stats 每秒一次，混进来就会污染账本
@@ -81,10 +89,18 @@ function main() {
       toCompileIpcPayload({ stage: "stats", fps: 60, frames: 120, time: 2 }),
       null,
     );
-    eq("契约探测之类的其它 stage 也丢掉", toCompileIpcPayload({ stage: "crawl-probe" }), null);
+    eq(
+      "契约探测之类的其它 stage 也丢掉",
+      toCompileIpcPayload({ stage: "crawl-probe" }),
+      null,
+    );
 
     for (const junk of [null, undefined, 42, "text", {}, [], true]) {
-      eq(`不是对象/没有 stage 的一律 null：${JSON.stringify(junk)}`, toCompileIpcPayload(junk), null);
+      eq(
+        `不是对象/没有 stage 的一律 null：${JSON.stringify(junk)}`,
+        toCompileIpcPayload(junk),
+        null,
+      );
     }
 
     // 宿主桥可能把上报原样递过来（字符串），所以编码端必须自己容忍 JSON 文本 ——
@@ -93,7 +109,11 @@ function main() {
       JSON.stringify({ stage: "compile", ok: false, errors: [ERR] }),
     );
     eq("JSON 字符串形式也能解", asText && asText.kind, "result");
-    eq("JSON 字符串形式的报错也在", asText && asText.errors && asText.errors[0], ERR);
+    eq(
+      "JSON 字符串形式的报错也在",
+      asText && asText.errors && asText.errors[0],
+      ERR,
+    );
     eq("坏 JSON 不抛、返回 null", toCompileIpcPayload("{ 这不是 JSON"), null);
     eq("JSON 数组同样不是有效上报", toCompileIpcPayload("[1,2,3]"), null);
   }
@@ -104,18 +124,31 @@ function main() {
       stage: "compile",
       errors: [ERR, 42, null, { a: 1 }, "第二行"],
     });
-    eq("errors 里的非字符串被过滤", mixed && mixed.errors && mixed.errors.length, 2);
+    eq(
+      "errors 里的非字符串被过滤",
+      mixed && mixed.errors && mixed.errors.length,
+      2,
+    );
     eq("留下的顺序不变", mixed && mixed.errors && mixed.errors[1], "第二行");
 
     const noErrors = toCompileIpcPayload({ stage: "compile" });
-    eq("errors 缺失 → 空数组（不是 undefined）", noErrors && noErrors.errors && noErrors.errors.length, 0);
+    eq(
+      "errors 缺失 → 空数组（不是 undefined）",
+      noErrors && noErrors.errors && noErrors.errors.length,
+      0,
+    );
 
-    const withLen = toCompileIpcPayload({ stage: "running", ok: true }, { codeLength: 320 });
+    const withLen = toCompileIpcPayload(
+      { stage: "running", ok: true },
+      { codeLength: 320 },
+    );
     eq("codeLength 会带上", withLen && withLen.codeLength, 320);
     ok(
       "codeLength 是负数/NaN 时不带（别编一个假长度出来）",
-      toCompileIpcPayload({ stage: "running", ok: true }, { codeLength: -5 }) ===
-        null ||
+      toCompileIpcPayload(
+        { stage: "running", ok: true },
+        { codeLength: -5 },
+      ) === null ||
         toCompileIpcPayload({ stage: "running", ok: true }, { codeLength: -5 })
           .codeLength === undefined,
     );
@@ -133,8 +166,17 @@ function main() {
     handlers.write({ kind: "pending", codeLength: 100 });
     eq("pending 让账本进入 pending", ledger.state().kind, "pending");
 
-    handlers.write({ kind: "result", ok: false, errors: [ERR], codeLength: 100 });
-    ok("result 让 AI 读到报错原文", handlers.read().includes(ERR), handlers.read());
+    handlers.write({
+      kind: "result",
+      ok: false,
+      errors: [ERR],
+      codeLength: 100,
+    });
+    ok(
+      "result 让 AI 读到报错原文",
+      handlers.read().includes(ERR),
+      handlers.read(),
+    );
 
     const before = handlers.read();
     let threw = null;
@@ -156,15 +198,30 @@ function main() {
     } catch (err) {
       threw = err;
     }
-    ok("一堆垃圾 payload 都不抛异常", threw === null, threw && String(threw.message));
+    ok(
+      "一堆垃圾 payload 都不抛异常",
+      threw === null,
+      threw && String(threw.message),
+    );
 
     // 最后一条是 { kind:"result", errors:[1,2,3] } —— 它是合法 kind，所以会写进账本，
     // 但非字符串会被过滤掉，于是变成"失败但没有日志"，这对 AI 仍然是有用的话。
     const after = handlers.read();
-    ok("读出来的永远是可用的文本（不会是空话）", after.trim() !== "", JSON.stringify(after));
-    ok("而且仍然在说人话（不是 [object Object]）", !after.includes("[object"), after);
+    ok(
+      "读出来的永远是可用的文本（不会是空话）",
+      after.trim() !== "",
+      JSON.stringify(after),
+    );
+    ok(
+      "而且仍然在说人话（不是 [object Object]）",
+      !after.includes("[object"),
+      after,
+    );
     ok("垃圾没有被当成「还没有收到」", !after.includes("还没有收到"), after);
-    ok("before 与 after 都是文本（便于对照）", typeof before === "string" && typeof after === "string");
+    ok(
+      "before 与 after 都是文本（便于对照）",
+      typeof before === "string" && typeof after === "string",
+    );
 
     // 只发了垃圾 kind 时，账本必须原封不动
     const ledger2 = createCompileLedger({ now: () => 2000 });

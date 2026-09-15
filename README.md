@@ -33,7 +33,7 @@ Operit 侧边栏插件：把 [Shadertoy](https://www.shadertoy.com/) 上别人�
 
 产物：`release/com.shaderfeed.operit-<version>.toolpkg`（由 `node tools/build-toolpkg.mjs` 生成）
 
-装好后侧边栏出现「**Shader 流**」。进去有 4 个标签，以下 6 下点击能把我需要的
+装好后侧边栏出现「**Shader 流**」。进去有 4 个标签，以下 7 下点击能把我需要的
 全部实机数据拿回来（结果都是屏幕上**可选中复制**的文本）：
 
 | # | 操作 | 耗时 | 能确认什么 |
