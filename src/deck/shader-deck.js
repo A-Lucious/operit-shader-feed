@@ -196,12 +196,20 @@
 
   // ---------------------------------------------------------------- GL 工具
 
+  /** WebGL 的 infoLog 在部分实现里以 NUL 结尾；NUL 不是空白字符，trim() 清不掉，
+   * 会在错误列表里留一条「幽灵行」。这里在源头统一剥掉。 */
+  function stripNul(text) {
+    return String(text == null ? "" : text)
+      .split(String.fromCharCode(0))
+      .join("");
+  }
+  
   function compileShader(gl, type, source) {
     var sh = gl.createShader(type);
     gl.shaderSource(sh, source);
     gl.compileShader(sh);
     if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-      var log = gl.getShaderInfoLog(sh) || "(空日志)";
+      var log = stripNul(gl.getShaderInfoLog(sh)) || "(空日志)";
       gl.deleteShader(sh);
       return { ok: false, log: log };
     }
@@ -226,7 +234,7 @@
     gl.deleteShader(vs.shader);
     gl.deleteShader(fs.shader);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      logs.push("[link] " + (gl.getProgramInfoLog(prog) || "(空日志)"));
+      logs.push("[link] " + (stripNul(gl.getProgramInfoLog(prog)) || "(空日志)"));
       gl.deleteProgram(prog);
       return { ok: false, logs: logs };
     }
@@ -494,8 +502,19 @@
       if (u.iTimeDelta) gl.uniform1f(u.iTimeDelta, delta);
       if (u.iFrameRate) gl.uniform1f(u.iFrameRate, deck._frameRate);
       if (u.iFrame) gl.uniform1i(u.iFrame, deck._frame);
-      // D4：无人交互，iMouse 恒 0
-      if (u.iMouse) gl.uniform4f(u.iMouse, 0.0, 0.0, 0.0, 0.0);
+      // iMouse：xy = 当前/最后触点（buffer 像素、y 向上，与 fragCoord 同系）；
+      // zw = 本次拖拽起点；按住为正、松开为负（abs(zw) 即起点）。
+      if (u.iMouse) {
+        var mouse = deck._mouse || { x: 0, y: 0, sx: 0, sy: 0, down: false };
+        var mouseSign = mouse.down ? 1 : -1;
+        gl.uniform4f(
+          u.iMouse,
+          mouse.x,
+          mouse.y,
+          mouse.sx * mouseSign,
+          mouse.sy * mouseSign,
+        );
+      }
       // D4：iDate 固定常量，保证可复现
       if (u.iDate) gl.uniform4f(u.iDate, 2024.0, 1.0, 1.0, 43200.0);
 
@@ -966,12 +985,74 @@
     };
   }
 
+  // ---------------------------------------------------------------- iMouse 拖拽
+  //
+  // 与 attachSwipe 的分工：swipe 只关心「快速竖向滑动」这个动作（诊断/上报用），
+  // 而这里提供的是**持续状态**：当前触点、拖拽起点、是否按住 —— 着色器据此做拖拽旋转。
+  // 坐标统一为 buffer 像素、y 向上（与 fragCoord / iResolution 同系），
+  // 这样 1.0 / 0.75 画质档下手感一致；touch-action:none 已在 runner.html 里配好。
+  function attachPointerDrag(canvas, state) {
+    function toBuffer(event) {
+      var rect = canvas.getBoundingClientRect();
+      var kx = rect.width > 0 ? canvas.width / rect.width : 1;
+      var ky = rect.height > 0 ? canvas.height / rect.height : 1;
+      return [
+        (event.clientX - rect.left) * kx,
+        canvas.height - (event.clientY - rect.top) * ky,
+      ];
+    }
+    function down(event) {
+      var p = toBuffer(event);
+      state.x = p[0];
+      state.y = p[1];
+      state.sx = p[0];
+      state.sy = p[1];
+      state.down = true;
+      try {
+        canvas.setPointerCapture(event.pointerId);
+      } catch {
+        /* 不支持 capture 的环境按普通事件流处理 */
+      }
+    }
+    function move(event) {
+      var p = toBuffer(event);
+      state.x = p[0];
+      state.y = p[1];
+    }
+    function up(event) {
+      if (state.down) {
+        state.down = false;
+        var p = toBuffer(event);
+        state.x = p[0];
+        state.y = p[1];
+      }
+      try {
+        canvas.releasePointerCapture(event.pointerId);
+      } catch {
+        /* 同上 */
+      }
+    }
+    canvas.addEventListener("pointerdown", down);
+    canvas.addEventListener("pointermove", move);
+    canvas.addEventListener("pointerup", up);
+    canvas.addEventListener("pointercancel", up);
+    return function detach() {
+      canvas.removeEventListener("pointerdown", down);
+      canvas.removeEventListener("pointermove", move);
+      canvas.removeEventListener("pointerup", up);
+      canvas.removeEventListener("pointercancel", up);
+    };
+  }
+  
   function ensureRunner() {
     if (runner) return runner;
     var canvas = document.getElementById("gl");
     if (!canvas) throw new Error('runner.html 缺少 <canvas id="gl">');
     var deck = createDeck(canvas, {});
+    // iMouse 拖拽接线：canvas 上的指针状态喂给 pushFrameUniforms()。
+    deck._mouse = { x: 0, y: 0, sx: 0, sy: 0, down: false };
     runner = { canvas: canvas, deck: deck, reportTimer: 0 };
+    runner.detachDrag = attachPointerDrag(canvas, deck._mouse);
 
     if (typeof ResizeObserver !== "undefined") {
       try {

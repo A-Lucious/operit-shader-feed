@@ -15,6 +15,22 @@ const chat_shader_state_js_1 = require("./shared/chat-shader-state.js");
  */
 const compileIpc = (0, compile_ipc_js_1.createCompileIpcHandlers)((0, compile_ledger_js_1.createCompileLedger)());
 /**
+ * 编译结果的两个通道：界面写、工具读。**必须挂在脚本顶层**，不能放进 registerToolPkg()。
+ *
+ * 为什么（v0.8.0 真机 bug）：宿主调用 registerToolPkg() 的是一次性注册引擎，
+ * 跑完立刻 destroy()；真正接收 IPC 的是另一个长期存活的 main 执行引擎。
+ * handler 挂在注册引擎里会随它一起被销毁，main 引擎的 __operitToolPkgIpcRegistry
+ * 永远是空的 —— 真机表现就是 `ToolPkg.ipc channel is not registered`。
+ *
+ * 顶层代码会在**每个真正执行本脚本的引擎**里跑一遍（模块按脚本文本缓存，每引擎一次），
+ * 所以每个 main 执行引擎都会得到这两个 handler。官方文档的 ipc 示例也是顶层写法。
+ */
+ToolPkg.ipc.on(chat_shader_state_js_1.IPC_COMPILE_WRITE, (payload) => {
+    compileIpc.write(payload);
+    return true;
+});
+ToolPkg.ipc.on(chat_shader_state_js_1.IPC_COMPILE_READ, () => compileIpc.read());
+/**
  * ToolPkg 主入口：只做注册，不在这里调用 `ToolPkg.readResource()`
  * （注册期间调用会立即抛异常，见 TOOLPKG_FORMAT_GUIDE.md §3.2.5）。
  *
@@ -28,15 +44,5 @@ function registerToolPkg() {
     ToolPkg.registerXmlRenderPlugin(chat_xml_render_js_1.SHADER_XML_RENDER_REGISTRATION);
     // 让 AI 知道 <shader> 标签存在，并知道写完要回来读编译结果 —— 否则这个能力没人发现。
     ToolPkg.registerSystemPromptComposeHook(system_prompt_js_1.SYSTEM_PROMPT_REGISTRATION);
-    // 编译结果的两个通道：界面写、工具读。
-    //
-    // 放在 registerToolPkg() 里而不是模块顶层（官方文档的 ipc 示例是放顶层的）：
-    // 顶层注册的代价是「万一 ToolPkg 还没就绪就整个包加载失败」，而这里必定就绪；
-    // 而且注册期的禁止清单里只有 readResource / wasm.call 这类**操作**，ipc.on 属于声明。
-    ToolPkg.ipc.on(chat_shader_state_js_1.IPC_COMPILE_WRITE, (payload) => {
-        compileIpc.write(payload);
-        return true;
-    });
-    ToolPkg.ipc.on(chat_shader_state_js_1.IPC_COMPILE_READ, () => compileIpc.read());
     return true;
 }

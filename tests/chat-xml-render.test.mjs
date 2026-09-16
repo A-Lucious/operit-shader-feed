@@ -31,6 +31,7 @@ const {
   decodeXmlEntities,
   stripCdata,
   parseShaderTag,
+  extractShaderBody,
   precheckShaderCode,
   onShaderXmlRender,
 } = require(HOOK_JS);
@@ -131,6 +132,58 @@ async function main() {
       cdata.code,
     );
     ok("CDATA 外壳没留下", !cdata.code.includes("CDATA"));
+
+    // —— v0.8.0 真机 bug：宿主传的是**完整 XML 块**（含 <shader> 标签本身）——
+    const block = parseShaderTag(
+      '<shader title="旋转方块">' + GLSL_WITH_ANGLES + "</shader>",
+    );
+    eq("完整块：抽出 title", block.title, "旋转方块");
+    ok(
+      "完整块：外壳被剥掉",
+      !block.code.includes("<shader") && !block.code.includes("</shader>"),
+      block.code.slice(0, 80),
+    );
+    ok(
+      "完整块：代码从 void mainImage 开始",
+      block.code.startsWith("void mainImage"),
+      block.code.slice(0, 80),
+    );
+
+    const blockNoAttr = parseShaderTag("<shader>" + GLSL_WITH_ANGLES + "</shader>");
+    ok(
+      "完整块（无属性）也能剥",
+      blockNoAttr.code.startsWith("void mainImage"),
+      blockNoAttr.code.slice(0, 40),
+    );
+
+    const blockCdata = parseShaderTag(
+      "<shader><![CDATA[" + GLSL_WITH_ANGLES + "]]></shader>",
+    );
+    ok(
+      "完整块 + CDATA：代码原样取出",
+      blockCdata.code.includes("uv.x < 0.5"),
+      blockCdata.code.slice(0, 80),
+    );
+
+    const blockEntity = parseShaderTag(
+      "<shader>void mainImage(out vec4 c, in vec2 f){ if (c.x &lt;0.5) c = vec4(1.); }</shader>",
+    );
+    ok("完整块 + 实体：解码回尖括号", blockEntity.code.includes("<0.5"), blockEntity.code);
+
+    // 直接测剥离函数本身（这次修复的新增单元）
+    eq("剥壳：完整块 → 内部", extractShaderBody("<shader>abc</shader>"), "abc");
+    eq(
+      "剥壳：带属性的完整块 → 内部",
+      extractShaderBody('<shader title="t">abc</shader>'),
+      "abc",
+    );
+    eq("剥壳：不是标签 → 原样", extractShaderBody("abc"), "abc");
+    eq(
+      "剥壳：只有开标签 → 原样（保守）",
+      extractShaderBody("<shader>abc"),
+      "<shader>abc",
+    );
+
   }
 
   console.log("── 结构预检查（纯字符串，不需要 WebGL）──");
@@ -151,6 +204,11 @@ async function main() {
     String(precheckShaderCode("#version 100\n" + GLSL_WITH_ANGLES)).includes(
       "300 es",
     ),
+  );
+
+  ok(
+    "外壳没剥（代码以 < 开头）→ 报错提醒",
+    String(precheckShaderCode("<shader>void mainImage(){}")).includes("外壳"),
   );
 
   eq("GLSL1 合法 → 通过", precheckShaderCode(GLSL_WITH_ANGLES), null);
@@ -221,6 +279,26 @@ async function main() {
       true,
     );
     eq("state 里的标题正确", state[STATE_KEY_SHADER_TITLE], "测试");
+  }
+
+  {
+    // 宿主真实格式：完整 XML 块（v0.8.0 在真机上拿到的就是这个）
+    const wrapped = onShaderXmlRender({
+      eventPayload: {
+        tagName: SHADER_XML_TAG,
+        xmlContent: '<shader title="完整块">' + GLSL_WITH_ANGLES + "</shader>",
+      },
+    });
+    eq("完整块 → handled:true", wrapped.handled, true);
+    ok("完整块 → 产出界面", !!wrapped.composeDsl);
+    const wrappedState = (wrapped.composeDsl && wrapped.composeDsl.state) || {};
+    eq("完整块 → 标题正确", wrappedState[STATE_KEY_SHADER_TITLE], "完整块");
+    ok(
+      "完整块 → 下发的代码不含标签外壳",
+      typeof wrappedState[STATE_KEY_SHADER_CODE] === "string" &&
+        !wrappedState[STATE_KEY_SHADER_CODE].includes("<shader"),
+      String(wrappedState[STATE_KEY_SHADER_CODE]).slice(0, 80),
+    );
   }
 
   console.log("── 注册对象 ──");

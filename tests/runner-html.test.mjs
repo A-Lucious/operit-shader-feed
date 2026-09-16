@@ -93,6 +93,8 @@ function main() {
   );
   ok("deck 的入口 API 在（__runnerLoad）", html.includes("__runnerLoad"), "");
   ok("deck 暴露了 ShaderDeck 版本信息", html.includes("ShaderDeck"), "");
+  ok("拖拽接线在（attachPointerDrag 已挂载）", html.includes("attachPointerDrag"), "");
+  ok("iMouse 不再恒 0（读 deck._mouse）", html.includes("deck._mouse"), "");
   // 危险的不是「提到了 runner.js」（deck 的注释里解释历史就会提到），
   // 而是代码里真的去引用它 —— 那才会又变成一次网络/文件系统依赖。
   ok(

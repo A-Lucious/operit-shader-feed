@@ -107,7 +107,7 @@ tools/build-toolpkg.mjs        打包（显式白名单，不用排除法）
   「永远停在等待握手」，而那只在真机暴露 —— 所以有一条断言拉着它们。
 - **代码长度放 ref，不读 state**。`report` 处理器只注册一次，读 state 会捕获注册那一刻的空串，
   AI 拿到的长度永远是 0。
-- **`ToolPkg.ipc.on` 放在 `registerToolPkg()` 里**，不放模块顶层：顶层注册失败会让整个包加载不了。
+- **`ToolPkg.ipc.on` 必须放脚本顶层（模块顶层），不能放进 `registerToolPkg()`**。宿主调用 `registerToolPkg()` 的是一次性注册引擎（跑完即 `destroy()`），真正接收 IPC 的是长期存活的 main 执行引擎；handler 放注册引擎里会随它一起消失，真机表现是 `ToolPkg.ipc channel is not registered`。顶层代码在每个真正执行本脚本的引擎里都会跑（模块按脚本文本缓存，每引擎一次），所以每个 main 引擎都会拿到 handler。官方文档的示例也是顶层写法。
 
 ### 与宿主契约的核对（装包前已逐项对过官方源码）
 
@@ -121,6 +121,7 @@ Kotlin 实现核对过：
 | `UI.WebView` 的 props | `html` / `baseUrl` / `controller` / `onReceivedError` / `onConsoleMessage` 都存在（`src/types/operit.d.ts` 里按官方字段名声明，写错会编译不过） |
 | prompt 钩子 | 返回 `{ systemPrompt }`，阶段名 `after_compose_system_prompt`，与 `examples/thinking_guidance` 同形 |
 | `ToolPkg.ipc` | ui → main 是**默认目标**、不需要 `targetContextKey`；sandbox 工具同样能 call 到 main |
+| `iMouse` | xy = 当前/最后触点（buffer 像素、y 向上、与 fragCoord 同系）；zw = 拖拽起点，**按住为正、松开为负**（`abs(zw)` 即起点）；未交互时全 0 |
 | 子包 tools | manifest 的 `subpackages[]` + 脚本头部 `/* METADATA {...} */`。METADATA 是**注释**，tsconfig 一旦开 `removeComments` 就会消失（打包脚本会拦） |
 | 宿主定时器 | **有** `setTimeout`/`setInterval`（`quickjs-runtime.d.ts`）—— 本包不依赖它们，时钟走页面驱动 |
 

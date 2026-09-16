@@ -49,6 +49,7 @@ const SUITE_LABELS = {
   "store.test.mjs": "存储层",
   "crawler.test.mjs": "爬取队列",
   "chat-xml-render.test.mjs": "聊天内渲染钩子",
+  "main-ipc-registration.test.mjs": "main脚本 IPC注册",
   "feed.test.mjs": "播放/缓冲状态机",
   "parse.test.mjs": "解析层",
   "store-crawler.test.mjs": "缓存数据源",
